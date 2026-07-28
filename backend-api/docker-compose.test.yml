@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0.24
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    environment:
+      MYSQL_ROOT_PASSWORD: test-root-password
+      MYSQL_DATABASE: tool_permissions_test
+      MYSQL_USER: test_runner
+      MYSQL_PASSWORD: test-runner-password
+    ports:
+      - "127.0.0.1:33060:3306"
+    tmpfs:
+      - /var/lib/mysql
+    volumes:
+      - ./tests/fixtures/schema/users.sql:/docker-entrypoint-initdb.d/001-users.sql:ro
+      - ./database/sql/2026-07-20-01-create-user-permissions.sql:/docker-entrypoint-initdb.d/002-permissions.sql:ro
+      - ./database/sql/2026-07-22-01-create-user-devices.sql:/docker-entrypoint-initdb.d/003-user-devices.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-ptest-root-password"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis:
+    image: redis:5.0-alpine
+    ports:
+      - "127.0.0.1:63800:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  php:
+    build:
+      context: .
+      dockerfile: docker/php73/Dockerfile.test
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      APP_ENV: testing
+      APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      LOG_CHANNEL: test_null
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: tool_permissions_test
+      DB_USERNAME: test_runner
+      DB_PASSWORD: test-runner-password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PERMISSION_ROOT_USER_ID: 31
+      VIEW_COMPILED_PATH: /tmp
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["tail", "-f", "/dev/null"]

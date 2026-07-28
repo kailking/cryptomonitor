@@ -1,0 +1,40 @@
+# Environment and credentials
+**/.env
+**/.env.*
+!**/.env.example
+!frontend-web/.env.development
+!frontend-web/.env.production
+!frontend-web/.env.staging
+*.pem
+*.key
+
+# Dependencies and build outputs
+**/node_modules/
+**/vendor/
+**/dist/
+**/web/
+**/web89/
+**/coverage/
+
+# Runtime and local state
+**/storage/logs/
+**/storage/framework/cache/
+**/storage/framework/sessions/
+**/storage/framework/views/
+**/.phpunit.result.cache
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/.worktrees/
+**/.well-known/
+**/.user.ini
+**/*_backup.php
+
+# Backups and deployment artifacts
+release-artifacts/
+frontend-web89/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.sql.gz

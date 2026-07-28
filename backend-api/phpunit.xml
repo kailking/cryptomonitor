@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="./vendor/phpunit/phpunit/phpunit.xsd"
+         backupGlobals="false"
+         backupStaticAttributes="false"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         processIsolation="false"
+         stopOnFailure="false">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">./tests/Unit</directory>
+        </testsuite>
+
+        <testsuite name="Feature">
+            <directory suffix="Test.php">./tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <filter>
+        <whitelist processUncoveredFilesFromWhitelist="true">
+            <directory suffix=".php">./app</directory>
+        </whitelist>
+    </filter>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" force="true"/>
+        <env name="LOG_CHANNEL" value="test_null" force="true"/>
+        <env name="DATABASE_URL" value="" force="true"/>
+        <env name="DB_CONNECTION" value="mysql" force="true"/>
+        <env name="DB_HOST" value="mysql" force="true"/>
+        <env name="DB_PORT" value="3306" force="true"/>
+        <env name="DB_DATABASE" value="tool_permissions_test" force="true"/>
+        <env name="DB_USERNAME" value="test_runner" force="true"/>
+        <env name="DB_PASSWORD" value="test-runner-password" force="true"/>
+        <env name="DB_SOCKET" value="" force="true"/>
+        <env name="REDIS_URL" value="" force="true"/>
+        <env name="REDIS_HOST" value="redis" force="true"/>
+        <env name="REDIS_PORT" value="6379" force="true"/>
+        <env name="REDIS_PASSWORD" value="" force="true"/>
+        <env name="PERMISSION_ROOT_USER_ID" value="31" force="true"/>
+        <env name="DEVICE_COOKIE_NAME" value="bishuju_device" force="true"/>
+        <env name="DEVICE_COOKIE_LIFETIME_MINUTES" value="525600" force="true"/>
+        <env name="DEVICE_COOKIE_SECURE" value="false" force="true"/>
+        <env name="VIEW_COMPILED_PATH" value="/tmp" force="true"/>
+        <server name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <server name="CACHE_DRIVER" value="array" force="true"/>
+        <server name="MAIL_DRIVER" value="array" force="true"/>
+        <server name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <server name="SESSION_DRIVER" value="array" force="true"/>
+    </php>
+</phpunit>
