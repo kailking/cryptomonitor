@@ -325,6 +325,8 @@ import {
 } from "@/api/user";
 import { copyText, isMobile, parseNumber } from "@/utils";
 import { platformText } from "@/utils/platform";
+import { restartInterval, stopInterval } from "@/utils/interval";
+import { createLatestRequestGuard } from "@/utils/latestRequest";
 const defaultData = {
   id: "",
   symbol: "",
@@ -418,6 +420,7 @@ export default {
       refresh_button: 2,
       second: 5000,
       intervalId: null,
+      isDisposed: false,
       is_mobile: isMobile(),
     };
   },
@@ -431,15 +434,17 @@ export default {
     },
   },
   created() {
+    this.topicsRequestGuard = createLatestRequestGuard();
     this.initPlatform();
     // this.initSymbols()
-    this.dataRefresh();
     this.initFilter();
     // 改成在标记条件后初始化
   },
   mounted() {},
   beforeDestroy() {
-    clearInterval(this.intervalId);
+    this.isDisposed = true;
+    if (this.topicsRequestGuard) this.topicsRequestGuard.invalidate();
+    this.intervalId = stopInterval(this.intervalId);
   },
   methods: {
     jumpLink(platform, symbol) {
@@ -487,10 +492,22 @@ export default {
       copyText(this, text);
     },
     async getTopics() {
+      const requestToken = this.topicsRequestGuard.begin();
       this.loading = true;
-      const res = await getMarketChange(this.query);
+      let res;
+      try {
+        res = await getMarketChange(this.query);
+      } catch (error) {
+        if (this.topicsRequestGuard.isCurrent(requestToken)) {
+          this.loading = false;
+        }
+        return;
+      }
+      if (!this.topicsRequestGuard.isCurrent(requestToken)) return;
       this.list = res.data;
-      this.loading = false;
+      if (this.topicsRequestGuard.isCurrent(requestToken)) {
+        this.loading = false;
+      }
     },
     async initSymbols() {
       const res3 = await getSymbolOption();
@@ -509,24 +526,28 @@ export default {
       await getCommonFilter({
         key: "change_right_platform",
       }).then((res) => {
-        this.query.platform = res.data;
+        this.query.platform = Array.isArray(res.data) ? res.data : [];
       });
       await getInfo().then((res) => {
-        const block_platform = res.data.block_platform.split(",");
+        const blockPlatform =
+          res && res.data && typeof res.data.block_platform === "string"
+            ? res.data.block_platform
+            : "";
+        const block_platform = blockPlatform.split(",").filter(Boolean);
         for (let i = 0; i < block_platform.length; i++) {
           if (!this.query.platform.includes(block_platform[i])) {
             this.query.platform.push(block_platform[i]);
           }
         }
       });
-      getCommonFilter({
+      const savedFilter = await getCommonFilter({
         key: "change_right_filter",
-      }).then((res) => {
-        res.data.change && (this.query.change = res.data.change);
-        res.data.second && (this.second = res.data.second);
-        res.data.refresh_button &&
-          (this.refresh_button = res.data.refresh_button);
       });
+      if (savedFilter.data.change) this.query.change = savedFilter.data.change;
+      if (savedFilter.data.second) this.second = savedFilter.data.second;
+      if (savedFilter.data.refresh_button) {
+        this.refresh_button = savedFilter.data.refresh_button;
+      }
       // const init_filter = await getFilter()
       // this.query.diff_price = init_filter.data.diff_price
       // this.query.platform = init_filter.data.platform
@@ -547,6 +568,7 @@ export default {
         }
       });
       this.getTopics();
+      this.dataRefresh();
     },
     async initPlatform() {
       const res2 = await getPlatformList();
@@ -559,16 +581,16 @@ export default {
       localStorage.setItem("change_right_search_box_show_all", this.showAll);
     },
     dataRefresh() {
-      // 计时器正在进行中，退出函数
-      if (this.intervalId != null) {
-        return;
-      }
-      // 计时器为空，操作
-      this.intervalId = setInterval(() => {
-        if (this.refresh_button === 1) {
-          this.getTopics();
-        }
-      }, this.second);
+      this.intervalId = stopInterval(this.intervalId);
+      if (this.refresh_button !== 1) return;
+      this.intervalId = restartInterval(
+        this.intervalId,
+        () => {
+          if (this.refresh_button === 1) this.getTopics();
+        },
+        this.second,
+        this.isDisposed
+      );
     },
     handleFilter() {
       this.query.page = 1;
@@ -589,6 +611,7 @@ export default {
     },
     openRefresh() {
       this.saveFilter();
+      this.dataRefresh();
     },
     handlePlatformChange(value) {
       // console.log(value)
