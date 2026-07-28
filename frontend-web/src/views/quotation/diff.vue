@@ -62,6 +62,43 @@
   word-break: break-all; /* 防止长单词撑破布局 */
 }
 
+.chain-layout-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 5px;
+}
+
+.chain-layout-label {
+  margin-left: 5px;
+}
+
+.chain-info-split {
+  display: block;
+  overflow: hidden;
+  text-align: left;
+
+  .chain-side {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:not(.chain-info-collapsed) .chain-side {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+}
+
+.chain-direction {
+  color: #606266;
+}
+
 .custom-menu {
   position: fixed;
   background: #fff;
@@ -94,6 +131,21 @@
   align-items: center;
   margin-bottom: 10px;
 }
+
+.quick-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-bottom: 6px;
+}
+
+.quick-filter-label {
+  color: #606266;
+  font-size: 14px;
+}
+
 .fixed-filter {
   position: fixed;
   top: 89px;
@@ -220,20 +272,6 @@
         <el-option :key="50" :value="50" label="50条" />
       </el-select>
       <el-button
-        type="primary"
-        :size="is_mobile ? 'small' : 'default'"
-        @click="onSetFee(true)"
-        >设置交易手续费</el-button
-      >
-      <el-button
-        type="success"
-        :size="is_mobile ? 'small' : 'default'"
-        @click="onSaveTempFilter()"
-        >保存临时过滤({{
-          tempfiltersymbol > 99 ? "99+" : tempfiltersymbol
-        }})</el-button
-      >
-      <el-button
         type="info"
         :size="is_mobile ? 'small' : 'default'"
         @click="queryOrClearTempFilter()"
@@ -253,7 +291,7 @@
         >清空右边表格数据</el-button
       >
     </div>
-    <div>
+    <div class="quick-filter-row">
       <el-button
         id="closeSearchBtn"
         :size="is_mobile ? 'small' : 'default'"
@@ -264,8 +302,46 @@
         {{ word }}
         <i :class="showAll ? 'el-icon-arrow-up ' : 'el-icon-arrow-down'" />
       </el-button>
+      <span class="quick-filter-label">快捷筛选</span>
+      <el-checkbox-group
+        v-model="quickFilters"
+        :size="is_mobile ? 'small' : 'default'"
+      >
+        <el-checkbox-button label="commonChain"
+          >只看有共同链</el-checkbox-button
+        >
+        <el-checkbox-button label="favorite">只看收藏</el-checkbox-button>
+      </el-checkbox-group>
     </div>
     <div v-show="showAll" id="searchBox">
+      <div class="filter-container chain-layout-settings">
+        <el-button
+          type="primary"
+          :size="is_mobile ? 'small' : 'default'"
+          @click="onSetFee(true)"
+          >设置交易手续费</el-button
+        >
+        <el-button
+          type="success"
+          :size="is_mobile ? 'small' : 'default'"
+          @click="onSaveTempFilter()"
+          >保存临时过滤({{
+            tempfiltersymbol > 99 ? "99+" : tempfiltersymbol
+          }})</el-button
+        >
+        <span class="chain-layout-label">链信息排版</span>
+        <el-radio-group
+          v-model="chainLayoutMode"
+          :size="is_mobile ? 'small' : 'default'"
+          @change="changeChainLayoutMode"
+        >
+          <el-radio-button label="original">原版</el-radio-button>
+          <el-radio-button label="split">分行</el-radio-button>
+          <el-radio-button label="splitSimple"
+            >分行(简版)</el-radio-button
+          >
+        </el-radio-group>
+      </div>
       <div class="filter-container" style="padding-bottom: 5px">
         <div style="padding-bottom: 5px">
           <div style="padding-top: 5px">
@@ -339,9 +415,9 @@
             <div style="padding-top: 10px">
               <span> 展示列 </span>
               <el-checkbox
-                v-for="(item, index) in lists"
+                v-for="item in lists"
                 :key="item.key"
-                v-model="lists[index].ispass"
+                v-model="item.ispass"
                 :label="item.label"
                 style="margin-left: 15px"
                 @change="changeSort"
@@ -353,7 +429,7 @@
         </div>
         <el-table
           :key="tableKey"
-          :data="list.data"
+          :data="displayMainRows"
           element-loading-text="Loading"
           border
           row-key="id"
@@ -364,11 +440,11 @@
           @header-dragend="handleHeaderDragend"
         >
           <el-table-column
-            v-if="lists[6].ispass"
+            v-if="isColumnVisible(lists, 'collect')"
             :key="'collect'"
             label=""
             prop="collect"
-            :width="getWidth('collect', 40)"
+            :width="getWidth('main', 'collect', 40)"
             align="center"
           >
             <template slot-scope="scope">
@@ -389,7 +465,7 @@
           <el-table-column
             label="交易对"
             prop="symbol"
-            :width="getWidth('symbol', 130)"
+            :width="getWidth('main', 'symbol', 130)"
             align="center"
           >
             <template slot-scope="scope">
@@ -402,7 +478,7 @@
           <el-table-column
             label="买入平台"
             prop="platform_buy"
-            :width="getWidth('platform_buy', 100)"
+            :width="getWidth('main', 'platform_buy', 100)"
             align="center"
           >
             <template slot-scope="scope">
@@ -418,7 +494,7 @@
           <el-table-column
             label="卖出平台"
             prop="platform_sell"
-            :width="getWidth('platform_sell', 100)"
+            :width="getWidth('main', 'platform_sell', 100)"
             align="center"
           >
             <template slot-scope="scope">
@@ -446,10 +522,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[8].ispass"
+            v-if="isColumnVisible(lists, 'price_diff')"
             label="价格差"
             prop="price_diff"
-            :width="getWidth('price_diff', 110)"
+            :width="getWidth('main', 'price_diff', 110)"
             align="center"
           >
             <template slot-scope="scope">
@@ -459,10 +535,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[9].ispass"
+            v-if="isColumnVisible(lists, 'buy_price')"
             label="买入价格"
             prop="buy_price_fmt"
-            :width="getWidth('buy_price_fmt', 150)"
+            :width="getWidth('main', 'buy_price_fmt', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -470,10 +546,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[10].ispass"
+            v-if="isColumnVisible(lists, 'sell_price')"
             label="卖出价格"
             prop="sell_price_fmt"
-            :width="getWidth('sell_price_fmt', 150)"
+            :width="getWidth('main', 'sell_price_fmt', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -482,11 +558,11 @@
           </el-table-column>
 
           <el-table-column
-            v-if="lists[0].ispass"
+            v-if="isColumnVisible(lists, 'buy_num')"
             :key="'buy_num'"
             label="买入数量"
             prop="buy_num"
-            :width="getWidth('buy_num', 150)"
+            :width="getWidth('main', 'buy_num', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -494,11 +570,11 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[1].ispass"
+            v-if="isColumnVisible(lists, 'sell_num')"
             :key="'sell_num'"
             label="卖出数量"
             prop="sell_num"
-            :width="getWidth('sell_num', 150)"
+            :width="getWidth('main', 'sell_num', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -506,22 +582,22 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[4].ispass"
+            v-if="isColumnVisible(lists, 'updated_at')"
             :key="'updated_at'"
             align="center"
             prop="updated_at"
             label="更新时间"
-            :width="getWidth('updated_at', 100)"
+            :width="getWidth('main', 'updated_at', 100)"
           >
             <template slot-scope="scope">
               <span>{{ scope.row.updated_at | coverDataTime }}</span>
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[2].ispass"
+            v-if="isColumnVisible(lists, 'total_buy_price')"
             :key="'total_buy_price'"
             label="买入总价(USDT)"
-            :width="getWidth('total_buy_price', 130)"
+            :width="getWidth('main', 'total_buy_price', 130)"
             prop="total_buy_price"
             align="center"
           >
@@ -535,10 +611,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[3].ispass"
+            v-if="isColumnVisible(lists, 'total_sell_price')"
             :key="'total_sell_price'"
             label="卖出总价(USDT)"
-            :width="getWidth('total_sell_price', 130)"
+            :width="getWidth('main', 'total_sell_price', 130)"
             align="center"
             prop="total_sell_price"
           >
@@ -553,10 +629,13 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="false"
+            v-if="
+              showMainProfitColumn &&
+              isColumnVisible(lists, 'lossgiftfee', true)
+            "
             :key="'lossgiftfee'"
             label="盈亏(没算提币手续费)"
-            :width="getWidth('lossgiftfee', 130)"
+            :width="getWidth('main', 'lossgiftfee', 130)"
             align="center"
             prop="lossgiftfee"
           >
@@ -579,12 +658,12 @@
         </template>
       </el-table-column> -->
           <el-table-column
-            v-if="lists[5].ispass"
+            v-if="isColumnVisible(lists, 'id')"
             :key="'id'"
             align="center"
             label="ID"
             prop="id"
-            :width="getWidth('id', 80)"
+            :width="getWidth('main', 'id', 80)"
           >
             <template slot-scope="scope">
               {{ scope.row.id }}
@@ -601,11 +680,11 @@
         </template>
       </el-table-column> -->
           <el-table-column
-            v-if="lists[11].ispass"
+            v-if="isColumnVisible(lists, 'remark')"
             label="备注"
             align="center"
             prop="remark"
-            :width="getWidth('remark', 120)"
+            :width="getWidth('main', 'remark', 120)"
           >
             <template slot-scope="scope">
               <span
@@ -623,12 +702,12 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists[7].ispass"
+            v-if="isColumnVisible(lists, 'withdraw')"
             key="withdraw"
             align="center"
             label="链信息(买/卖)"
             prop="withdraw"
-            :width="getWidth('withdraw', 180)"
+            :width="getWidth('main', 'withdraw', 180)"
           >
             <template slot-scope="scope">
               <div
@@ -642,51 +721,87 @@
               <div
                 v-else
                 :class="{
-                  'ellipsis-2-lines': chain_index !== scope.$index,
+                  'ellipsis-2-lines':
+                    chainLayoutMode === 'original' &&
+                    chain_index !== scope.$index,
+                  'chain-info-split': chainLayoutMode !== 'original',
+                  'chain-info-collapsed':
+                    chainLayoutMode !== 'original' &&
+                    chain_index !== scope.$index,
                 }"
                 style="cursor: pointer"
                 @click="handleWithdraw(scope.row)"
                 @mouseover="handleMouseOver(scope.row, scope.$index)"
                 @mouseleave="handleMouseLeave(scope.row, scope.$index)"
               >
-                <span v-if="!scope.row.buy_withdraw_info_text.length">
-                  无信息
+                <span :class="{ 'chain-side': chainLayoutMode !== 'original' }">
+                  <span
+                    v-if="chainLayoutMode === 'split'"
+                    class="chain-direction"
+                    >买：</span
+                  >
+                  <span v-if="!scope.row.buy_withdraw_info_text.length">
+                    无信息
+                  </span>
+                  <span
+                    v-for="(item, index) in getChainItemsForDisplay(
+                      scope.row.buy_withdraw_info_text
+                    )"
+                    :key="index"
+                  >
+                    <span
+                      :class="{
+                        'chain-green': item.is_withdraw == 1,
+                        'chain-red': item.is_withdraw != 1,
+                      }"
+                      >{{ getChainNameForDisplay(item.network) }}</span
+                    >
+                    <span
+                      v-if="
+                        index <
+                        getChainItemsForDisplay(
+                          scope.row.buy_withdraw_info_text
+                        ).length -
+                          1
+                      "
+                      >,</span
+                    >
+                  </span>
                 </span>
-                <span
-                  v-for="(item, index) in scope.row.buy_withdraw_info_text"
-                  :key="index"
-                >
+                <span v-if="chainLayoutMode === 'original'">买 - 卖</span>
+                <span :class="{ 'chain-side': chainLayoutMode !== 'original' }">
                   <span
-                    :class="{
-                      'chain-green': item.is_withdraw == 1,
-                      'chain-red': item.is_withdraw != 1,
-                    }"
-                    >{{ item.network }}</span
+                    v-if="chainLayoutMode === 'split'"
+                    class="chain-direction"
+                    >卖：</span
                   >
                   <span
-                    v-if="index < scope.row.buy_withdraw_info_text.length - 1"
-                    >,</span
+                    v-for="(item, index) in getChainItemsForDisplay(
+                      scope.row.sell_withdraw_info_text
+                    )"
+                    :key="index"
                   >
-                </span>
-                <span>买 - 卖</span>
-                <span
-                  v-for="(item, index) in scope.row.sell_withdraw_info_text"
-                  :key="index"
-                >
-                  <span
-                    :class="{
-                      'chain-green': item.is_deposit == 1,
-                      'chain-red': item.is_deposit != 1,
-                    }"
-                    >{{ item.network }}</span
-                  >
-                  <span
-                    v-if="index < scope.row.sell_withdraw_info_text.length - 1"
-                    >,</span
-                  >
-                </span>
-                <span v-if="!scope.row.sell_withdraw_info_text.length">
-                  无信息
+                    <span
+                      :class="{
+                        'chain-green': item.is_deposit == 1,
+                        'chain-red': item.is_deposit != 1,
+                      }"
+                      >{{ getChainNameForDisplay(item.network) }}</span
+                    >
+                    <span
+                      v-if="
+                        index <
+                        getChainItemsForDisplay(
+                          scope.row.sell_withdraw_info_text
+                        ).length -
+                          1
+                      "
+                      >,</span
+                    >
+                  </span>
+                  <span v-if="!scope.row.sell_withdraw_info_text.length">
+                    无信息
+                  </span>
                 </span>
               </div>
             </template>
@@ -707,7 +822,7 @@
       </el-table-column> -->
           <el-table-column
             label="过滤"
-            :width="getWidth('filter', 140)"
+            :width="getWidth('main', 'filter', 140)"
             prop="filter"
           >
             <template slot-scope="scope">
@@ -745,7 +860,7 @@
             <div style="padding-top: 10px">
               <span> 展示列 </span>
               <el-checkbox
-                v-for="(item, index) in lists_temp"
+                v-for="item in lists_temp"
                 :key="item.key"
                 v-model="item.ispass"
                 :label="item.label"
@@ -769,11 +884,11 @@
           @header-dragend="handleHeaderDragendRight"
         >
           <el-table-column
-            v-if="lists_temp[6].ispass"
+            v-if="isColumnVisible(lists_temp, 'collect')"
             :key="'collect'"
             label=""
             prop="collect"
-            :width="getWidth('collect', 40)"
+            :width="getWidth('right', 'collect', 40)"
             align="center"
           >
             <template slot-scope="scope">
@@ -794,7 +909,7 @@
           <el-table-column
             label="交易对"
             prop="symbol"
-            :width="getWidth('symbol', 130)"
+            :width="getWidth('right', 'symbol', 130)"
             align="center"
           >
             <template slot-scope="scope">
@@ -807,7 +922,7 @@
           <el-table-column
             label="买入平台"
             prop="platform_buy"
-            :width="getWidth('platform_buy', 100)"
+            :width="getWidth('right', 'platform_buy', 100)"
             align="center"
           >
             <template slot-scope="scope">
@@ -823,7 +938,7 @@
           <el-table-column
             label="卖出平台"
             prop="platform_sell"
-            :width="getWidth('platform_sell', 100)"
+            :width="getWidth('right', 'platform_sell', 100)"
             align="center"
           >
             <template slot-scope="scope">
@@ -852,10 +967,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[8].ispass"
+            v-if="isColumnVisible(lists_temp, 'price_diff')"
             label="价格差"
             prop="price_diff"
-            :width="getWidth('price_diff', 110)"
+            :width="getWidth('right', 'price_diff', 110)"
             align="center"
           >
             <template slot-scope="scope">
@@ -865,10 +980,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[9].ispass"
+            v-if="isColumnVisible(lists_temp, 'buy_price')"
             label="买入价格"
             prop="buy_price_fmt"
-            :width="getWidth('buy_price_fmt', 150)"
+            :width="getWidth('right', 'buy_price_fmt', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -876,10 +991,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[10].ispass"
+            v-if="isColumnVisible(lists_temp, 'sell_price')"
             label="卖出价格"
             prop="sell_price_fmt"
-            :width="getWidth('sell_price_fmt', 150)"
+            :width="getWidth('right', 'sell_price_fmt', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -888,11 +1003,11 @@
           </el-table-column>
 
           <el-table-column
-            v-if="lists_temp[0].ispass"
+            v-if="isColumnVisible(lists_temp, 'buy_num')"
             :key="'buy_num'"
             label="买入数量"
             prop="buy_num"
-            :width="getWidth('buy_num', 150)"
+            :width="getWidth('right', 'buy_num', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -900,11 +1015,11 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[1].ispass"
+            v-if="isColumnVisible(lists_temp, 'sell_num')"
             :key="'sell_num'"
             label="卖出数量"
             prop="sell_num"
-            :width="getWidth('sell_num', 150)"
+            :width="getWidth('right', 'sell_num', 150)"
             align="center"
           >
             <template slot-scope="scope">
@@ -912,22 +1027,22 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[4].ispass"
+            v-if="isColumnVisible(lists_temp, 'updated_at')"
             :key="'updated_at'"
             align="center"
             prop="updated_at"
             label="更新时间"
-            :width="getWidth('updated_at', 100)"
+            :width="getWidth('right', 'updated_at', 100)"
           >
             <template slot-scope="scope">
               <span>{{ scope.row.updated_at | coverDataTime }}</span>
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[2].ispass"
+            v-if="isColumnVisible(lists_temp, 'total_buy_price')"
             :key="'total_buy_price'"
             label="买入总价(USDT)"
-            :width="getWidth('total_buy_price', 130)"
+            :width="getWidth('right', 'total_buy_price', 130)"
             prop="total_buy_price"
             align="center"
           >
@@ -941,10 +1056,10 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[3].ispass"
+            v-if="isColumnVisible(lists_temp, 'total_sell_price')"
             :key="'total_sell_price'"
             label="卖出总价(USDT)"
-            :width="getWidth('total_sell_price', 130)"
+            :width="getWidth('right', 'total_sell_price', 130)"
             align="center"
             prop="total_sell_price"
           >
@@ -971,22 +1086,22 @@
         </template>
       </el-table-column> -->
           <el-table-column
-            v-if="lists_temp[5].ispass"
+            v-if="isColumnVisible(lists_temp, 'id')"
             :key="'id'"
             align="center"
             label="ID"
             prop="id"
-            :width="getWidth('id', 80)"
+            :width="getWidth('right', 'id', 80)"
           >
             <template slot-scope="scope">
               {{ scope.row.id }}
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[12].ispass"
+            v-if="showMainProfitColumn && isColumnVisible(lists_temp, 'lossgiftfee', true)"
             :key="'lossgiftfee'"
             label="盈亏(没算提币手续费)"
-            :width="getWidth('lossgiftfee', 130)"
+            :width="getWidth('right', 'lossgiftfee', 130)"
             align="center"
             prop="lossgiftfee"
           >
@@ -997,11 +1112,11 @@
             </template>
           </el-table-column>
           <el-table-column
-            v-if="lists_temp[11].ispass"
+            v-if="isColumnVisible(lists_temp, 'remark')"
             label="备注"
             align="center"
             prop="remark"
-            :width="getWidth('remark', 120)"
+            :width="getWidth('right', 'remark', 120)"
           >
             <template slot-scope="scope">
               <span
@@ -1020,12 +1135,12 @@
           </el-table-column>
 
           <el-table-column
-            v-if="lists_temp[7].ispass"
+            v-if="isColumnVisible(lists_temp, 'withdraw')"
             key="withdraw"
             align="center"
             label="链信息(买/卖)"
             prop="withdraw"
-            :width="getWidth('withdraw', 180)"
+            :width="getWidth('right', 'withdraw', 180)"
           >
             <template slot-scope="scope">
               <div
@@ -1039,51 +1154,83 @@
               <div
                 v-else
                 :class="{
-                  'ellipsis-2-lines': chain_index !== scope.$index,
+                  'ellipsis-2-lines':
+                    chainLayoutMode === 'original' &&
+                    chain_index !== scope.$index,
+                  'chain-info-split': chainLayoutMode !== 'original',
+                  'chain-info-collapsed':
+                    chainLayoutMode !== 'original' &&
+                    chain_index !== scope.$index,
                 }"
                 style="cursor: pointer"
                 @click="handleWithdraw(scope.row)"
                 @mouseover="handleMouseOver(scope.row, scope.$index)"
                 @mouseleave="handleMouseLeave(scope.row, scope.$index)"
               >
-                <span v-if="!scope.row.buy_withdraw_info_text.length">
-                  无信息
+                <span :class="{ 'chain-side': chainLayoutMode !== 'original' }">
+                  <span v-if="chainLayoutMode === 'split'" class="chain-direction"
+                    >买：</span
+                  >
+                  <span v-if="!scope.row.buy_withdraw_info_text.length">
+                    无信息
+                  </span>
+                  <span
+                    v-for="(item, index) in getChainItemsForDisplay(
+                      scope.row.buy_withdraw_info_text
+                    )"
+                    :key="index"
+                  >
+                    <span
+                      :class="{
+                        'chain-green': item.is_withdraw == 1,
+                        'chain-red': item.is_withdraw != 1,
+                      }"
+                      >{{ getChainNameForDisplay(item.network) }}</span
+                    >
+                    <span
+                      v-if="
+                        index <
+                        getChainItemsForDisplay(
+                          scope.row.buy_withdraw_info_text
+                        ).length -
+                          1
+                      "
+                      >,</span
+                    >
+                  </span>
                 </span>
-                <span
-                  v-for="(item, index) in scope.row.buy_withdraw_info_text"
-                  :key="index"
-                >
-                  <span
-                    :class="{
-                      'chain-green': item.is_withdraw == 1,
-                      'chain-red': item.is_withdraw != 1,
-                    }"
-                    >{{ item.network }}</span
+                <span v-if="chainLayoutMode === 'original'">买 - 卖</span>
+                <span :class="{ 'chain-side': chainLayoutMode !== 'original' }">
+                  <span v-if="chainLayoutMode === 'split'" class="chain-direction"
+                    >卖：</span
                   >
                   <span
-                    v-if="index < scope.row.buy_withdraw_info_text.length - 1"
-                    >,</span
+                    v-for="(item, index) in getChainItemsForDisplay(
+                      scope.row.sell_withdraw_info_text
+                    )"
+                    :key="index"
                   >
-                </span>
-                <span>买 - 卖</span>
-                <span
-                  v-for="(item, index) in scope.row.sell_withdraw_info_text"
-                  :key="index"
-                >
-                  <span
-                    :class="{
-                      'chain-green': item.is_deposit == 1,
-                      'chain-red': item.is_deposit != 1,
-                    }"
-                    >{{ item.network }}</span
-                  >
-                  <span
-                    v-if="index < scope.row.sell_withdraw_info_text.length - 1"
-                    >,</span
-                  >
-                </span>
-                <span v-if="!scope.row.sell_withdraw_info_text.length">
-                  无信息
+                    <span
+                      :class="{
+                        'chain-green': item.is_deposit == 1,
+                        'chain-red': item.is_deposit != 1,
+                      }"
+                      >{{ getChainNameForDisplay(item.network) }}</span
+                    >
+                    <span
+                      v-if="
+                        index <
+                        getChainItemsForDisplay(
+                          scope.row.sell_withdraw_info_text
+                        ).length -
+                          1
+                      "
+                      >,</span
+                    >
+                  </span>
+                  <span v-if="!scope.row.sell_withdraw_info_text.length">
+                    无信息
+                  </span>
                 </span>
               </div>
             </template>
@@ -1378,7 +1525,7 @@
         <el-table-column label="操作" width="220" align="center">
           <template slot-scope="scope">
             <el-button
-              v-if="scope.row.platform_address"
+              v-if="canConfigurePlatformAddress && scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handlePlatformAddress(scope.row, 2)"
@@ -1386,7 +1533,7 @@
               更新钱包余额
             </el-button>
             <el-button
-              v-if="!scope.row.platform_address && isAdmin"
+              v-if="canConfigurePlatformAddress && !scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handlePlatformAddress(scope.row, 2)"
@@ -1394,7 +1541,7 @@
               配置地址
             </el-button>
             <el-button
-              v-if="scope.row.platform_address && isAdmin"
+              v-if="canConfigurePlatformAddress && scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handleEditAddress(scope.row, 2)"
@@ -1503,7 +1650,7 @@
         <el-table-column label="操作" width="220" align="center">
           <template slot-scope="scope">
             <el-button
-              v-if="scope.row.platform_address"
+              v-if="canConfigurePlatformAddress && scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handlePlatformAddress(scope.row, 2)"
@@ -1511,7 +1658,7 @@
               更新钱包余额
             </el-button>
             <el-button
-              v-if="!scope.row.platform_address && isAdmin"
+              v-if="canConfigurePlatformAddress && !scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handlePlatformAddress(scope.row, 2)"
@@ -1519,7 +1666,7 @@
               配置地址
             </el-button>
             <el-button
-              v-if="scope.row.platform_address && isAdmin"
+              v-if="canConfigurePlatformAddress && scope.row.platform_address"
               type="primary"
               size="mini"
               @click="handleEditAddress(scope.row, 1)"
@@ -1645,7 +1792,10 @@
         <el-button @click="platformAddressDialogVisible = false"
           >取消</el-button
         >
-        <el-button type="primary" @click="savePlatformAddressConfig"
+        <el-button
+          v-if="canConfigurePlatformAddress"
+          type="primary"
+          @click="savePlatformAddressConfig"
           >保存</el-button
         >
       </span>
@@ -1700,7 +1850,6 @@ import {
   setCommonFilter,
   getCommonFilter,
   blockId,
-  getInfo,
 } from "@/api/user";
 import { switchDiff } from "@/api/setting";
 import Pagination from "@/components/pagination";
@@ -1711,16 +1860,28 @@ import {
   parseNumber,
   formatSmartDecimal,
 } from "@/utils/index";
-import Kline from "@/components/kline/index.vue";
-import Depth from "@/components/depth/index.vue";
 import {
-  parsePercentage,
   platformText,
   chainList,
   parsePercent,
   calcumNum,
   calcProfit,
 } from "@/utils/platform";
+import { isColumnVisible as getColumnVisibility } from "@/utils/columnVisibility";
+import {
+  getChainDisplayItems,
+  normalizeChainLayoutMode,
+  simplifyChainName,
+} from "@/utils/chainDisplay";
+import { restartInterval, stopInterval } from "@/utils/interval";
+import { bindContextMenu } from "@/utils/domEvents";
+import { createLatestRequestGuard } from "@/utils/latestRequest";
+import { hasPermission } from "@/utils/permissions";
+import {
+  buildTableWidthKey,
+  readJson,
+  readTableWidth,
+} from "@/utils/tablePreferences";
 
 const defaultData = {
   id: "",
@@ -1793,13 +1954,14 @@ export default {
     },
   },
   components: {
-    Depth,
-    Kline,
+    Kline: () => import("@/components/kline/index.vue"),
+    Depth: () => import("@/components/depth/index.vue"),
     Pagination,
     Multiselect,
   },
   data() {
     return {
+      pagePreferenceName: "diff",
       with_fee_info: 0,
       fixedfilter: 0,
       tempfiltersymbol: 0,
@@ -1807,6 +1969,7 @@ export default {
       platformAllTemp: [],
       platformAll: platformText(),
       setLossFeeVisible: false,
+      quickFilters: [],
       right_keep_num: 10,
       tableKey: "",
       klineShow: false,
@@ -1817,7 +1980,6 @@ export default {
       klineId: "",
       remark: "",
       topic: Object.assign({}, defaultData),
-      index: 0,
       routes: [],
       list: [],
       loading: true,
@@ -1993,11 +2155,11 @@ export default {
           label: "备注",
           ispass: false,
         },
-        // {
-        //   key: "lossgiftfee",
-        //   label: "盈亏不包含提币手续费",
-        //   ispass: true,
-        // },
+        {
+          key: "lossgiftfee",
+          label: "盈亏不包含提币手续费",
+          ispass: true,
+        },
       ],
       currencyList: [
         { key: "USDT", item: "USDT" },
@@ -2010,17 +2172,20 @@ export default {
       refresh_button_temp: "",
       second: 5000,
       intervalId: null,
+      isDisposed: false,
+      unbindContextMenu: null,
       tablekeycount: 0,
       is_mobile: isMobile(),
+      chainLayoutMode: normalizeChainLayoutMode(
+        localStorage.getItem("diff_chain_layout_mode")
+      ),
       chain_index: "",
       list_temp: [],
-      right_keep_num: 10,
       menuVisible: false,
       menuStyle: {
         left: 0,
         top: 0,
       },
-      roles: [],
       queryTempDialogVisible: false,
       tempFilterSearch: "",
       tempFilterRows: [],
@@ -2029,27 +2194,42 @@ export default {
         total: 0,
         last_page: 1,
         page_size: 10,
-        total: 0,
-        last_page: 1,
-        total: 0,
-        last_page: 1,
       },
     };
   },
   computed: {
+    displayMainRows() {
+      const rows =
+        this.list && Array.isArray(this.list.data) ? this.list.data : [];
+      const onlyCommonChain = this.quickFilters.includes("commonChain");
+      const onlyFavorite = this.quickFilters.includes("favorite");
+
+      if (!onlyCommonChain && !onlyFavorite) return rows;
+
+      return rows.filter((row) => {
+        if (onlyFavorite && row.is_collect != 1) return false;
+        if (onlyCommonChain && !this.hasUsableCommonChain(row)) return false;
+        return true;
+      });
+    },
+    showMainProfitColumn() {
+      return hasPermission(
+        "quotation.profit.view",
+        this.$store.getters.permissions
+      );
+    },
+    canConfigurePlatformAddress() {
+      return hasPermission(
+        "platform.address.configure",
+        this.$store.getters.permissions
+      );
+    },
     word: function () {
       if (this.showAll === false) {
         return "展开";
       } else {
         return "收起";
       }
-    },
-    isAdmin() {
-      const roles =
-        Array.isArray(this.roles) && this.roles.length > 0
-          ? this.roles
-          : this.$store && this.$store.getters && this.$store.getters.roles;
-      return Array.isArray(roles) && roles.includes("admin");
     },
     filteredTempFilterRows() {
       const keyword = this.tempFilterSearch.trim().toLowerCase();
@@ -2077,16 +2257,16 @@ export default {
     },
   },
   destroyed() {
-    document.removeEventListener("contextmenu", this.showMenu);
+    this.isDisposed = true;
+    if (this.topicsRequestGuard) this.topicsRequestGuard.invalidate();
+    if (this.unbindContextMenu) this.unbindContextMenu();
     document.removeEventListener("click", this.hideMenu);
-    clearInterval(this.intervalId);
+    this.intervalId = stopInterval(this.intervalId);
   },
 
   created() {
-    document.addEventListener("contextmenu", (e) => {
-      e.preventDefault(); // 阻止浏览器默认的右键菜单
-      this.showMenu(e);
-    });
+    this.topicsRequestGuard = createLatestRequestGuard();
+    this.unbindContextMenu = bindContextMenu(document, this.showMenu);
     this.initPlatform();
     this.initSymbols();
     this.initFilter();
@@ -2098,7 +2278,11 @@ export default {
     const lists_temp = localStorage.getItem("diff_column_lists_filter_temp");
     const list_temp = localStorage.getItem("diff_table_temp_list");
     if (lists_temp) {
-      const lists_temp_data = JSON.parse(lists_temp);
+      const lists_temp_data = readJson(
+        localStorage,
+        "diff_column_lists_filter_temp",
+        []
+      );
       this.lists_temp.forEach((item) => {
         lists_temp_data.forEach((it) => {
           if (item.key == it.key) {
@@ -2108,52 +2292,63 @@ export default {
       });
     }
     if (list_temp) {
-      this.list_temp = JSON.parse(list_temp);
+      this.list_temp = readJson(localStorage, "diff_table_temp_list", []);
     }
 
     // 改成在标记条件后初始化
     // this.getTopics()
   },
   mounted() {
-    this.fetchUserInfo();
-    if (localStorage.getItem("platform_fee")) {
-      const platform_fee = JSON.parse(localStorage.getItem("platform_fee"));
+    const savedPlatformFee = readJson(localStorage, "platform_fee", null);
+    if (Array.isArray(savedPlatformFee)) {
       this.platformAll.forEach((item) => {
-        platform_fee.forEach((it) => {
+        savedPlatformFee.forEach((it) => {
           if (item.id == it.id) {
             item.val = it.val;
           }
         });
       });
-    } else {
-      this.$msgbox
-        .confirm("当前未设置交易手续费", "设置交易手续费", {
-          confirmButtonText: "确定",
-          type: "warning",
-        })
-        .then(() => {
-          this.onSetFee(true);
-        });
     }
     if (localStorage.getItem("temp_filter_diff")) {
-      const temp_symbol = JSON.parse(localStorage.getItem("temp_filter_diff"));
+      const temp_symbol = readJson(localStorage, "temp_filter_diff", []);
       this.tempfiltersymbol = temp_symbol.length;
       this.query.block_id_temp = temp_symbol;
     }
     if (localStorage.getItem("temp_filter_diff_info")) {
-      try {
-        this.tempFilterRows = JSON.parse(
-          localStorage.getItem("temp_filter_diff_info")
-        );
-      } catch (err) {
-        this.tempFilterRows = [];
-      }
+      this.tempFilterRows = readJson(
+        localStorage,
+        "temp_filter_diff_info",
+        []
+      );
     }
     if (localStorage.getItem("fixed_filter_diff")) {
       this.fixedfilter = localStorage.getItem("fixed_filter_diff");
     }
   },
   methods: {
+    hasUsableCommonChain(row) {
+      const buyItems = Array.isArray(row.buy_withdraw_info_text)
+        ? row.buy_withdraw_info_text
+        : [];
+      const sellItems = Array.isArray(row.sell_withdraw_info_text)
+        ? row.sell_withdraw_info_text
+        : [];
+      const buyNetworks = new Set(
+        buyItems
+          .filter((item) => item && item.is_withdraw == 1)
+          .map((item) => simplifyChainName(item.network))
+          .filter((network) => network && network !== "空")
+      );
+
+      return sellItems.some((item) => {
+        if (!item || item.is_deposit != 1) return false;
+        const network = simplifyChainName(item.network);
+        return network && network !== "空" && buyNetworks.has(network);
+      });
+    },
+    isColumnVisible(columns, key, fallback = false) {
+      return getColumnVisibility(columns, key, fallback);
+    },
     getTotalWin(data, fee) {
       const lossgift = this.getLossGiftFee(data);
       return calcumNum(lossgift - fee);
@@ -2254,15 +2449,6 @@ export default {
       this.tempFilterPage.page = page;
       this.ensureTempFilterPage();
     },
-    async fetchUserInfo() {
-      try {
-        const res = await getInfo();
-        const roles = res && res.data && res.data.roles;
-        this.roles = Array.isArray(roles) ? roles : [];
-      } catch (err) {
-        this.roles = [];
-      }
-    },
     onTempFilterSwitch(row, value) {
       if (!value) {
         this.releaseTempFilter(row);
@@ -2332,11 +2518,7 @@ export default {
     loadTempFilterInfo() {
       let savedRows = [];
       if (localStorage.getItem("temp_filter_diff_info")) {
-        try {
-          savedRows = JSON.parse(localStorage.getItem("temp_filter_diff_info"));
-        } catch (err) {
-          savedRows = [];
-        }
+        savedRows = readJson(localStorage, "temp_filter_diff_info", []);
       }
 
       const mergedRows = [...savedRows, ...this.tempFilterRows];
@@ -2468,14 +2650,11 @@ export default {
     getLossGiftFee(data) {
       const buy_platform = data.buy_platform;
       let buy_fee = 0;
-      const buy_num = 0;
       let sell_fee = 0;
-      const sell_num = 0;
       const sell_platform = data.sell_platform;
 
       let num = data.total_buy_price;
 
-      const result = 0;
       if (Number(data.total_sell_price) < Number(num)) {
         num = data.total_sell_price;
       }
@@ -2530,24 +2709,50 @@ export default {
         this.right_keep_num
       );
     },
+    changeChainLayoutMode(value) {
+      localStorage.setItem("diff_chain_layout_mode", value);
+    },
+    getChainItemsForDisplay(items) {
+      return getChainDisplayItems(
+        items,
+        this.chainLayoutMode === "splitSimple"
+      );
+    },
+    getChainNameForDisplay(network) {
+      return this.chainLayoutMode === "splitSimple"
+        ? simplifyChainName(network)
+        : network;
+    },
     handleMouseOver(row, index) {
       this.chain_index = index;
     },
     handleMouseLeave(row, index) {
       this.chain_index = "";
     },
-    getWidth(prop, defaultWidth) {
-      const saved = localStorage.getItem(`diff_table_col_${prop}_width`);
-      return saved ? parseInt(saved) : defaultWidth;
+    getWidth(side, prop, defaultWidth) {
+      return readTableWidth(
+        localStorage,
+        this.pagePreferenceName,
+        side,
+        prop,
+        defaultWidth
+      );
     },
-    handleHeaderDragend(newWidth, oldWidth, column) {
-      localStorage.setItem(`diff_table_col_${column.property}_width`, newWidth);
-    },
-    handleHeaderDragendRight(newWidth, oldWidth, column) {
+    saveWidth(side, newWidth, column) {
       localStorage.setItem(
-        `diff_right_table_col_${column.property}_width`,
+        buildTableWidthKey(
+          this.pagePreferenceName,
+          side,
+          column.property
+        ),
         newWidth
       );
+    },
+    handleHeaderDragend(newWidth, oldWidth, column) {
+      this.saveWidth("main", newWidth, column);
+    },
+    handleHeaderDragendRight(newWidth, oldWidth, column) {
+      this.saveWidth("right", newWidth, column);
     },
     changeSortTemp() {
       const passedKeys = this.lists_temp.reduce((arr, item) => {
@@ -2698,11 +2903,21 @@ export default {
       });
     },
     async getTopics(bool) {
+      const requestToken = this.topicsRequestGuard.begin();
       if (bool !== true) {
         this.loading = true;
       }
       if (this.query.is_margin != 1) this.query.is_margin = "";
-      const res = await getQuotationPrice(this.query);
+      let res;
+      try {
+        res = await getQuotationPrice(this.query);
+      } catch (error) {
+        if (this.topicsRequestGuard.isCurrent(requestToken)) {
+          this.loading = false;
+        }
+        return;
+      }
+      if (!this.topicsRequestGuard.isCurrent(requestToken)) return;
       const newList = [];
       res.data.data.forEach((item) => {
         const buy_withdraw_info_text = [];
@@ -2781,7 +2996,9 @@ export default {
         JSON.stringify(this.list_temp)
       );
       this.list = res.data;
-      this.loading = false;
+      if (this.topicsRequestGuard.isCurrent(requestToken)) {
+        this.loading = false;
+      }
     },
     async initSymbols() {
       const res3 = await getSymbolOption();
@@ -2856,27 +3073,19 @@ export default {
       localStorage.setItem("diff_search_box_show_all", this.showAll);
     },
     dataRefresh() {
-      // 先清理旧定时器，避免旧间隔继续执行
-      if (this.intervalId) {
-        clearInterval(this.intervalId);
-        this.intervalId = null;
-      }
-
-      // 仅在自动刷新开启时启动计时器
-      if (this.refresh_button !== 1) {
-        return;
-      }
-
-      this.intervalId = setInterval(() => {
-        if (this.refresh_button === 1) {
-          this.getTopics(true);
-        }
-      }, this.second);
+      this.intervalId = stopInterval(this.intervalId);
+      if (this.refresh_button !== 1) return;
+      this.intervalId = restartInterval(
+        this.intervalId,
+        () => {
+          if (this.refresh_button === 1) this.getTopics(true);
+        },
+        this.second,
+        this.isDisposed
+      );
     },
     changeSecond() {
       this.saveFilter();
-
-      this.intervalId = null;
       this.dataRefresh();
     },
     handlePlatformFilter() {
@@ -2918,7 +3127,7 @@ export default {
         : platformId;
     },
     async handleEditAddress(row, type) {
-      if (!this.isAdmin) {
+      if (!this.canConfigurePlatformAddress) {
         this.$message.warning("当前用户无权限配置地址");
         return;
       }
@@ -2935,6 +3144,10 @@ export default {
       this.platformAddressDialogVisible = true;
     },
     async handlePlatformAddress(row, type) {
+      if (!this.canConfigurePlatformAddress) {
+        this.$message.warning("当前用户无权限配置地址");
+        return;
+      }
       if (row.platform_address) {
         await refreshPlatformAddress({
           platform: row.platform,
@@ -2950,12 +3163,6 @@ export default {
 
         return;
       }
-
-      if (!this.isAdmin) {
-        this.$message.warning("当前用户无权限配置地址");
-        return;
-      }
-
       this.platformAddressRow = row;
       this.platformAddressForm.platform = row.platform;
       this.platformAddressForm.platform = row.platform;
@@ -2977,6 +3184,10 @@ export default {
       });
     },
     async savePlatformAddressConfig() {
+      if (!this.canConfigurePlatformAddress) {
+        this.$message.warning("当前用户无权限配置地址");
+        return;
+      }
       if (!this.platformAddressForm.address) {
         this.$message.warning("请输入地址");
         return;
@@ -2989,11 +3200,6 @@ export default {
         this.$message.warning("请选择链类型");
         return;
       }
-      if (!this.isAdmin && !this.platformAddressRow.platform_address) {
-        this.$message.warning("当前用户无权限配置地址");
-        return;
-      }
-
       await configPlatformAddress({
         platform: this.platformAddressForm.platform,
         network_type: this.platformAddressForm.network_type,
@@ -3023,15 +3229,8 @@ export default {
       this.query.platform = value;
       console.log(this.query.platform);
     },
-    addTag(newTag) {
+    addTag() {
       this.handleFilter();
-      return;
-      const tag = {
-        name: newTag,
-        code: newTag.substring(0, 2) + Math.floor(Math.random() * 10000000),
-      };
-      this.options.push(tag);
-      this.value.push(tag);
     },
     // filterId(id) {
     //   this.query.block_ids.push(id)
