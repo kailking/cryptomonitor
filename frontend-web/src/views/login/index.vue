@@ -66,7 +66,7 @@
 </template>
 
 <script>
-import Fingerprint2 from "fingerprintjs2";
+import { resolveBrowserId } from "@/utils/browserFingerprint";
 
 export default {
   name: "Login",
@@ -124,31 +124,22 @@ export default {
     handleLogin() {
       localStorage.setItem("diff_5_table_temp_list", JSON.stringify([]));
       localStorage.setItem("diff_table_temp_list", JSON.stringify([]));
-      this.$refs.loginForm.validate((valid) => {
+      this.$refs.loginForm.validate(async (valid) => {
         if (valid) {
           this.loading = true;
-          Fingerprint2.get(function (components) {
-            const values = components.map(function (component, index) {
-              if (index === 0) {
-                // 把微信浏览器里UA的wifi或4G等网络替换成空,不然切换网络会ID不一样
-                return component.value.replace(/\bNetType\/\w+\b/, "");
-              }
-              return component.value;
-            });
-            // 生成最终id murmur
-            const murmur = Fingerprint2.x64hash128(values.join(""), 31);
-            localStorage.setItem("browserId", murmur);
-          });
-          this.loginForm.salt = localStorage.getItem("browserId");
-          this.$store
-            .dispatch("user/login", this.loginForm)
-            .then(() => {
-              this.$router.push({ path: this.redirect || "/" });
-              this.loading = false;
-            })
-            .catch(() => {
-              this.loading = false;
-            });
+          try {
+            this.loginForm.salt = await resolveBrowserId();
+            await this.$store.dispatch("user/login", this.loginForm);
+            this.$router.push({ path: this.redirect || "/" });
+          } catch (error) {
+            if (!error || !error.response) {
+              this.$message.error(
+                "无法生成浏览器标识，请刷新页面后重试"
+              );
+            }
+          } finally {
+            this.loading = false;
+          }
         } else {
           console.log("error submit!!");
           return false;

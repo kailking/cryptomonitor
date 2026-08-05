@@ -15,19 +15,6 @@ import router from "./router";
 import "@/icons"; // icon
 import "@/permission"; // permission control
 
-/**
- * If you don't want to use mock-server
- * you want to use MockJs for mock api
- * you can execute: mockXHR()
- *
- * Currently MockJs will be used in the production environment,
- * please remove it before going online ! ! !
- */
-if (process.env.NODE_ENV === "production") {
-  const { mockXHR } = require("../mock");
-  mockXHR();
-}
-
 // set ElementUI lang to ZH-CN
 Vue.use(ElementUI, { locale });
 // 如果想要中文版 element-ui，按如下方式声明
@@ -36,7 +23,6 @@ Vue.use(ElementUI, { locale });
 Vue.config.productionTip = false;
 (function() {
   let down = false;
-  let moved = false;
 
   const isInput = el =>
     el &&
@@ -47,11 +33,9 @@ Vue.config.productionTip = false;
   /* ---------- 1. 拖动实时清选区 ---------- */
   document.addEventListener("mousedown", e => {
     down = true;
-    moved = false;
   });
   document.addEventListener("mousemove", e => {
     if (!down) return;
-    moved = true;
     if (!isInput(e.target)) window.getSelection().removeAllRanges();
   });
   document.addEventListener("mouseup", () => {

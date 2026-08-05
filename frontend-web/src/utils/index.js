@@ -170,24 +170,6 @@ export function covertime(time, dataType = "ymdhis") {
     return `${y}-${m}-${d} ${h}:${i}:${s}`;
   }
 }
-// 防抖函数定义
-function debounce(fn, delay = 300, immediate = false) {
-  let timer = null;
-
-  return function(...args) {
-    const context = this;
-
-    if (timer) clearTimeout(timer);
-
-    if (immediate) {
-      const callNow = !timer;
-      timer = setTimeout(() => (timer = null), delay);
-      if (callNow) fn.apply(context, args);
-    } else {
-      timer = setTimeout(() => fn.apply(context, args), delay);
-    }
-  };
-}
 export function formatDecimal(value, maxDecimals = 2) {
   const num = Number(value);
   if (isNaN(num)) return "0.00";

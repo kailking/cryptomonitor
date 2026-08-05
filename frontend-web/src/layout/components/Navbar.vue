@@ -57,15 +57,15 @@ export default {
     Breadcrumb,
     Hamburger,
   },
-  computed: {
-    ...mapGetters(["sidebar", "avatar"]),
-  },
   data() {
     return {
       eth_price: 0,
       btc_price: 0,
       usdt_price: 0,
     };
+  },
+  computed: {
+    ...mapGetters(["sidebar", "avatar"]),
   },
   beforeDestroy() {
     clearInterval(this.intervalId);

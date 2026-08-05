@@ -24,9 +24,9 @@ export function switchDiffBatch(data) {
     data: data
   });
 }
-export function settingServer(data) {
+export function restartPlatform(data) {
   return request({
-    url: "/setting/restart/server",
+    url: "/setting/restart/platform",
     method: "post",
     data: data
   });

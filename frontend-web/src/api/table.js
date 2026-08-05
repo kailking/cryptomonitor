@@ -116,10 +116,9 @@ export function getChangeConfig(params) {
     params
   });
 }
-export function postRestartServer(data) {
+export function postRestartServer() {
   return request({
     url: "/setting/restart/server",
-    method: "post",
-    data
+    method: "post"
   });
 }

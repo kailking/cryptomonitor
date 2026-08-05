@@ -181,3 +181,75 @@ export function changeBlockIdBatch(data) {
     data
   });
 }
+
+function allowedParams(params, allowedKeys) {
+  const result = {}
+  if (!params || typeof params !== "object") {
+    return result
+  }
+  allowedKeys.forEach(key => {
+    try {
+      if (Object.prototype.hasOwnProperty.call(params, key)) {
+        result[key] = params[key]
+      }
+    } catch (error) {
+      // Ignore proxy-hostile and otherwise unreadable query objects.
+    }
+  })
+  return result
+}
+
+function assertPermissionUserId(id) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new TypeError("Permission user ID must be a positive integer")
+  }
+}
+
+export function getPermissionCatalog() {
+  return request({
+    url: "/admin/permissions/catalog",
+    method: "get"
+  })
+}
+
+export function getPermissionUsers(params) {
+  return request({
+    url: "/admin/permissions/users",
+    method: "get",
+    params: allowedParams(params, ["account", "page", "page_size"])
+  })
+}
+
+export function getUserPermissions(id) {
+  assertPermissionUserId(id)
+  return request({
+    url: `/admin/permissions/users/${id}`,
+    method: "get"
+  })
+}
+
+export function updateUserPermissions(id, permissions) {
+  assertPermissionUserId(id)
+  return request({
+    url: `/admin/permissions/users/${id}`,
+    method: "put",
+    data: { permissions }
+  })
+}
+
+export function getPermissionLogs(params) {
+  return request({
+    url: "/admin/permissions/logs",
+    method: "get",
+    params: allowedParams(params, [
+      "target_account",
+      "operator_account",
+      "permission_code",
+      "action",
+      "created_from",
+      "created_to",
+      "page",
+      "page_size"
+    ])
+  })
+}

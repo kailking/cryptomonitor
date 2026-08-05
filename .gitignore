@@ -5,6 +5,7 @@
 !frontend-web/.env.development
 !frontend-web/.env.production
 !frontend-web/.env.staging
+!frontend-web/.env.web
 *.pem
 *.key
 

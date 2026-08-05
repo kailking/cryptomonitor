@@ -201,7 +201,13 @@
               justify-content: center;
               color: blue;
             "
-            @click="jumpLink(scope.row.platform, scope.row.symbol)"
+            @click="
+              jumpLink(
+                scope.row.platform,
+                scope.row.currency_name,
+                scope.row.quote_name
+              )
+            "
           >
             {{ scope.row.platform_text }}
 
@@ -324,7 +330,7 @@ import {
   getInfo,
 } from "@/api/user";
 import { copyText, isMobile, parseNumber } from "@/utils";
-import { platformText } from "@/utils/platform";
+import { buildPlatformTradeUrl } from "@/utils/platform";
 import { restartInterval, stopInterval } from "@/utils/interval";
 import { createLatestRequestGuard } from "@/utils/latestRequest";
 const defaultData = {
@@ -447,20 +453,9 @@ export default {
     this.intervalId = stopInterval(this.intervalId);
   },
   methods: {
-    jumpLink(platform, symbol) {
-      const plat_temp = platformText();
-      for (let i = 0; i < plat_temp.length; i++) {
-        if (plat_temp[i]["id"] == platform) {
-          let url = "";
-          if (plat_temp[i]["url_type"]) {
-            url = plat_temp[i]["url"].replace(/btc/gi, symbol.toLowerCase());
-          } else {
-            url = plat_temp[i]["url"].replace(/btc/gi, symbol.toUpperCase());
-          }
-          window.open(url);
-          break;
-        }
-      }
+    jumpLink(platform, symbol, quoteName) {
+      const url = buildPlatformTradeUrl(platform, symbol, quoteName);
+      if (url) window.open(url);
     },
     getWidth(prop, defaultWidth) {
       const saved = localStorage.getItem(`diff_right_table_col_${prop}_width`);

@@ -3,6 +3,14 @@ import { MessageBox, Message } from "element-ui";
 import store from "@/store";
 import { getToken } from "@/utils/auth";
 
+function safeGet(value, property) {
+  try {
+    return value == null ? undefined : value[property];
+  } catch (error) {
+    return undefined;
+  }
+}
+
 // create an axios instance
 const service = axios.create({
   baseURL: process.env.VUE_APP_BASE_API, // url = base url + request url
@@ -61,11 +69,8 @@ service.interceptors.response.use(
           cancelButtonText: "取消",
           type: "warning"
         })
-          .then(() => {
-            store.dispatch("user/resetToken").then(() => {
-              location.reload();
-            });
-          })
+          .then(() => store.dispatch("user/resetToken"))
+          .then(() => location.reload())
           .catch(() => {});
       }
       return Promise.reject(new Error(res.message || "Error"));
@@ -74,9 +79,27 @@ service.interceptors.response.use(
     }
   },
   error => {
-    console.log("err" + error); // for debug
+    const response = safeGet(error, "response");
+    const status = safeGet(response, "status");
+    const data = safeGet(response, "data");
+    const backendMessageValue = safeGet(data, "message");
+    const errorMessageValue = safeGet(error, "message");
+    const backendMessage =
+      typeof backendMessageValue === "string" &&
+      backendMessageValue.trim().length > 0
+        ? backendMessageValue
+        : "";
+    const errorMessage =
+      typeof errorMessageValue === "string" &&
+      errorMessageValue.trim().length > 0
+        ? errorMessageValue
+        : "";
+
     Message({
-      message: error.message,
+      message:
+        status === 403
+          ? backendMessage || "当前账号无此操作权限"
+          : backendMessage || errorMessage || "网络错误",
       type: "error",
       duration: 5 * 1000
     });

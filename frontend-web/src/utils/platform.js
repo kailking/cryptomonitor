@@ -133,6 +133,40 @@ export function platformText() {
     }
   ];
 }
+
+const platformTradeUrlOverrides = {
+  9: {
+    url_type: true,
+    url: "https://www.coinex.com/zh-hans/exchange/btc-usdt"
+  },
+  10: {
+    url_type: true,
+    url: "https://www.lbank.com/zh-TC/trade/btc_usdt"
+  },
+  23: {
+    url_type: false,
+    url: "https://www.pionex.com/zh-CN/trade/BTC_USDT/"
+  }
+};
+
+export function buildPlatformTradeUrl(platformId, symbol, quoteName = "USDT") {
+  const platform =
+    platformTradeUrlOverrides[Number(platformId)] ||
+    platformText().find((item) => item.id == platformId);
+  const base = String(symbol || "").trim();
+  const quote = String(quoteName || "USDT").trim();
+
+  if (!platform || !platform.url || !base || !quote) return "";
+
+  const normalize = platform.url_type
+    ? (value) => value.toLowerCase()
+    : (value) => value.toUpperCase();
+
+  return platform.url
+    .replace(/btc/gi, () => normalize(base))
+    .replace(/usdt/gi, () => normalize(quote));
+}
+
 export function chainList() {
   return [
     { id: 1, name: "ETH" },

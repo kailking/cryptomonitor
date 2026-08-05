@@ -34,6 +34,7 @@
         搜索
       </el-button>
       <el-button
+        v-if="canCreateUser"
         class="filter-item"
         :size="is_mobile ? 'small' : 'default'"
         style="margin-left: 10px"
@@ -44,6 +45,7 @@
         添加账号
       </el-button>
       <el-button
+        v-if="canRenewUsers"
         :size="is_mobile ? 'small' : 'default'"
         class="filter-item"
         style="margin-left: 10px"
@@ -77,8 +79,10 @@
       @selection-change="handleSelectionChange"
     >
       <el-table-column
+        v-if="canRenewUsers"
         type="selection"
         prop="selection"
+        :selectable="canSelectRenewUser"
         :width="getWidth('symbol', 40)"
       />
       <el-table-column align="center" label="ID" width="95">
@@ -159,6 +163,7 @@
             >{{ scope.row.remark }}</span
           >
           <el-input
+            v-if="canMutateUser(scope.row, 'users.edit')"
             v-show="scope.row['is_remark'] === true"
             :ref="`inp-${scope.row.id}`"
             v-model="scope.row.remark"
@@ -174,6 +179,7 @@
       >
         <template slot-scope="scope">
           <el-button
+            v-if="canMutateUser(scope.row, 'users.renew')"
             size="mini"
             type="success"
             plain
@@ -188,6 +194,7 @@
             >续费下一个月</el-button
           > -->
           <el-button
+            v-if="canMutateUser(scope.row, 'users.force_logout')"
             size="mini"
             type="danger"
             plain
@@ -195,6 +202,7 @@
             >强制下线</el-button
           >
           <el-button
+            v-if="canMutateUser(scope.row, 'users.edit')"
             size="mini"
             type="default"
             plain
@@ -240,6 +248,7 @@
         </el-form-item>
         <el-form-item label="失效时间">
           <el-date-picker
+            v-if="dialogStatus === 'create'"
             v-model="temp.expired_at"
             format="yyyy-MM-dd"
             value-format="yyyy-MM-dd"
@@ -267,8 +276,16 @@
       <div slot="footer" class="dialog-footer">
         <el-button @click="dialogFormVisible = false"> 取消 </el-button>
         <el-button
+          v-if="dialogStatus === 'create' && canCreateUser"
           type="primary"
-          @click="dialogStatus === 'create' ? createData() : updateData()"
+          @click="createData()"
+        >
+          确认
+        </el-button>
+        <el-button
+          v-else-if="dialogStatus === 'update' && canMutateUser(temp, 'users.edit')"
+          type="primary"
+          @click="updateData()"
         >
           确认
         </el-button>
@@ -296,7 +313,13 @@
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="expireFormVisible = false"> 取消 </el-button>
-        <el-button type="primary" @click="expireConfirm()"> 确认 </el-button>
+        <el-button
+          v-if="expireBatchVisible ? canRenewUsers : canMutateUser(temp2, 'users.renew')"
+          type="primary"
+          @click="expireConfirm()"
+        >
+          确认
+        </el-button>
       </div>
     </el-dialog>
     <Pagination
@@ -319,6 +342,7 @@ import {
 } from "@/api/user";
 import { getPlatformList } from "@/api/table";
 import { isMobile } from "@/utils";
+import { hasPermission } from "@/utils/permissions";
 import Pagination from "@/components/pagination";
 export default {
   components: {
@@ -373,11 +397,62 @@ export default {
       is_mobile: isMobile(),
     };
   },
+  computed: {
+    canCreateUser() {
+      return hasPermission(
+        "users.create",
+        this.$store.getters.permissions
+      );
+    },
+    canRenewUsers() {
+      return hasPermission("users.renew", this.$store.getters.permissions);
+    },
+  },
   created() {
     this.initPlatform();
     this.fetchData();
   },
   methods: {
+    canMutateUser(row, permissionCode) {
+      if (!hasPermission(permissionCode, this.$store.getters.permissions)) {
+        return false;
+      }
+      if (!row || typeof row !== "object") {
+        return false;
+      }
+      try {
+        const rootFlag = row.is_permission_root;
+        if (rootFlag !== true && rootFlag !== false) {
+          return false;
+        }
+        return (
+          this.$store.getters.isPermissionRoot === true || rootFlag === false
+        );
+      } catch (error) {
+        return false;
+      }
+    },
+    canSelectRenewUser(row) {
+      return this.canMutateUser(row, "users.renew");
+    },
+    canRenewSelection(rows) {
+      if (!hasPermission("users.renew", this.$store.getters.permissions)) {
+        return false;
+      }
+      try {
+        if (!Array.isArray(rows)) {
+          return false;
+        }
+        for (let index = 0; index < rows.length; index += 1) {
+          if (!this.canMutateUser(rows[index], "users.renew")) {
+            return false;
+          }
+        }
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
     async initPlatform() {
       const res = await getPlatformList();
       this.platformList = res.data || [];
@@ -422,9 +497,18 @@ export default {
       this.expireBatchVisible = false;
     },
     handleSelectionChange(val) {
+      if (!hasPermission("users.renew", this.$store.getters.permissions)) {
+        return;
+      }
       this.selectList = val;
     },
     handleBatchExpire() {
+      if (!hasPermission("users.renew", this.$store.getters.permissions)) {
+        return;
+      }
+      if (!this.canRenewSelection(this.selectList)) {
+        return;
+      }
       if (!this.selectList.length) {
         return this.$message.warning("请先选择勾选用户");
       }
@@ -432,12 +516,18 @@ export default {
       this.expireBatchVisible = true;
     },
     cellClick(row, column) {
+      if (!this.canMutateUser(row, "users.edit")) {
+        return;
+      }
       const prop = column.property;
       if (prop == "remark") {
         this.onRemarkClick(row);
       }
     },
     onRemarkClick(row) {
+      if (!this.canMutateUser(row, "users.edit")) {
+        return;
+      }
       this.list.forEach((item) => {
         if (item.id == row.id) this.$set(item, "is_remark", true);
         else this.$set(item, "is_remark", false);
@@ -453,6 +543,9 @@ export default {
       }, 500);
     },
     onRemarkBlur(row) {
+      if (!this.canMutateUser(row, "users.edit")) {
+        return;
+      }
       this.list.forEach((item) => {
         this.$set(item, "is_remark", false);
       });
@@ -469,8 +562,11 @@ export default {
       this.listNew = res.data;
       this.listLoading = false;
     },
-    handleLogout() {
-      postClearToken().then((res) => {
+    handleLogout(row) {
+      if (!this.canMutateUser(row, "users.force_logout")) {
+        return;
+      }
+      postClearToken({ id: row.id }).then((res) => {
         this.$notify({
           title: "强制下线",
           message: "强制下线成功",
@@ -480,6 +576,9 @@ export default {
       });
     },
     handleUpdate(row) {
+      if (!this.canMutateUser(row, "users.edit")) {
+        return;
+      }
       this.temp = Object.assign({}, row); // copy obj
       this.selectedBlockPlatforms = this.normalizeBlockPlatform(
         this.temp.block_platform || this.temp.block_platform
@@ -491,6 +590,9 @@ export default {
       });
     },
     handleCreate() {
+      if (!hasPermission("users.create", this.$store.getters.permissions)) {
+        return;
+      }
       this.resetTemp();
       this.dialogStatus = "create";
       this.dialogFormVisible = true;
@@ -499,6 +601,9 @@ export default {
       });
     },
     handleExpire(row) {
+      if (!this.canMutateUser(row, "users.renew")) {
+        return;
+      }
       this.temp2 = Object.assign({}, row); // copy obj
       this.temp2.month = 1;
       this.expireFormVisible = true;
@@ -507,6 +612,9 @@ export default {
       });
     },
     resetTemp() {
+      if (!hasPermission("users.create", this.$store.getters.permissions)) {
+        return;
+      }
       this.temp = {
         id: undefined,
         account: "",
@@ -517,8 +625,11 @@ export default {
       this.selectedBlockPlatforms = [];
     },
     updateData() {
+      if (!this.canMutateUser(this.temp, "users.edit")) {
+        return;
+      }
       const tempData = Object.assign({}, this.temp);
-      tempData["expired_at"] = tempData["expired_at"] + " 00:00:00";
+      delete tempData.expired_at;
       delete tempData.block_platform;
       tempData.block_platform = this.formatBlockPlatform(
         this.selectedBlockPlatforms
@@ -537,6 +648,9 @@ export default {
       });
     },
     createData() {
+      if (!hasPermission("users.create", this.$store.getters.permissions)) {
+        return;
+      }
       const tempData = Object.assign({}, this.temp);
       delete tempData.block_platform;
       tempData.block_platform = this.formatBlockPlatform(
@@ -554,6 +668,12 @@ export default {
       });
     },
     handleConfirmBatchExpire() {
+      if (!hasPermission("users.renew", this.$store.getters.permissions)) {
+        return;
+      }
+      if (!this.canRenewSelection(this.selectList)) {
+        return;
+      }
       if (!this.selectList.length) {
         return this.$message.warning("请先选择勾选用户");
       }
@@ -572,6 +692,9 @@ export default {
       });
     },
     handleConfirmExpire(data) {
+      if (!this.canMutateUser(data, "users.renew")) {
+        return;
+      }
       this.temp2 = Object.assign({}, data); // copy obj
       this.temp2.month = 1;
       expireUser(this.temp2).then(() => {
@@ -586,7 +709,13 @@ export default {
       });
     },
     expireConfirm() {
+      if (!hasPermission("users.renew", this.$store.getters.permissions)) {
+        return;
+      }
       if (this.expireBatchVisible) {
+        if (!this.canRenewSelection(this.selectList)) {
+          return;
+        }
         updateBatchExipre({
           id: this.selectList.map((item) => item.id).join(","),
           month: this.temp2.month,
@@ -600,6 +729,9 @@ export default {
           });
           this.fetchData();
         });
+        return;
+      }
+      if (!this.canMutateUser(this.temp2, "users.renew")) {
         return;
       }
       expireUser(this.temp2).then(() => {
