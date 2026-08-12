@@ -102,6 +102,59 @@
 
 ## 4. 部署记录
 
+### 2026-08-13 / CM-20260813-BITMART-DISABLE / BitMart 下架并停止生产订阅
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 待部署 |
+| 计划日期与窗口 | 2026-08-13，随本次维护窗口执行，Asia/Shanghai |
+| 实际开始/结束时间 | 待执行 |
+| 环境 | 生产 |
+| 变更目标 | 下架 BitMart（平台 17）：从平台文本和自动任务中移除，停止并注销 Supervisor 行情订阅 |
+| cryptomonitor 业务提交 | `7e4d66c21cde3634f11d228e37ddf15fe58cd390` |
+| go_project 业务提交 | `3711658c233fa6fdefd32e444ccf1eb7a344f939`（仅本地提交，不推送） |
+| 服务器目标 | Laravel `/www/wwwroot/bishujucoin.com`；Tool `/www/wwwroot/tool`；Go `/www/wwwroot/go_project/exchange_hub`；Supervisor include 目录以服务器主配置为准 |
+| 实施/部署/验证/回滚负责人 | 现场记录 |
+
+#### 需上传文件
+
+| 仓库 | 相对路径 | 生产目标/操作 | SHA-256 | 操作 |
+|---|---|---|---|---|
+| cryptomonitor | `backend-api/app/Model/CurrencyQuotation.php` | `/www/wwwroot/bishujucoin.com/app/Model/CurrencyQuotation.php` | `f72d67ca99da1be724f77a4c5593522faaa16feb8128a909986287eaececd86b` | 替换；注释平台 17 文本 |
+| cryptomonitor | `tool/app/Model/CurrencyQuotation.php` | `/www/wwwroot/tool/app/Model/CurrencyQuotation.php` | `40b4059e6c4a2d03aff765ac1b46c2a2a740425b4c765481af3a2d089d34310a` | 替换；注释平台 17 文本 |
+| cryptomonitor | `tool/scripts/update_symbol.sh` | `/www/wwwroot/tool/scripts/update_symbol.sh` | `196d0ec2242c228ef893d983bead229bbd235556fdfe01019f7aa8025baddcfc` | 替换；注销 BitMart Symbol 更新 |
+| cryptomonitor | `tool/scripts/update_withdraw.sh` | `/www/wwwroot/tool/scripts/update_withdraw.sh` | `0bac405fd327fdbf6d4c61d5dfef6ec753418ef58ecbdefb09be924bea5bbd11` | 替换；注销 BitMart 充提更新 |
+| cryptomonitor | `tool/scripts/restart_system.sh` | `/www/wwwroot/tool/scripts/restart_system.sh` | `fade617984dd235a5339a8d1501e038c5aa433fbcd00ed8a08f2954bd0f7200c` | 替换；注销平台 17 单平台重启映射 |
+| cryptomonitor | `tool/supervisor/bitmart_socket.conf.disabled` | 服务器 Supervisor include 目录中的同名文件 | `3b0bf4eded282a4c2001337a06f64127de03c14af892c0b3a10208d8c593505d` | 将现有 `bitmart_socket.conf` 原地改名为 `.conf.disabled`；不能只多传一个副本 |
+| go_project | `exchange_hub/cmd_2/frequency_stats/main.go` | `/www/wwwroot/go_project/exchange_hub/cmd_2/frequency_stats/main.go` | `5a95dd1bb704ef6ba329ee5fc9696242ab2ab4abd36d48bd44bfd965aeff183a` | 替换；公共诊断工具不再订阅 BitMart，按需在服务器重建 `bin/frequency_stats` |
+
+#### 数据与配置边界
+
+- SQL、migration、backfill、环境变量变更：无。
+- 保留 `PLATFORM_BITMART = 17`、`is_bitmart` 字段、独立采集器源码和手工 Artisan 命令，以兼容历史记录与可回滚性；生产自动调度入口均已断开。
+- `futures_diff_calc` 与 `market_change_to_redis_v2` 仍能识别历史平台 17，但不连接 BitMart；采集进程停止后，Redis DB3 中遗留行情 Key 依其既有 TTL 自动消失。
+
+#### 生产操作与验证
+
+1. 先核实 `bitmart_socket:*` 的 Supervisor 项、PID、完整命令和 CWD，再执行 `supervisorctl stop 'bitmart_socket:*'` 并确认退出。
+2. 在 Supervisor 实际 include 目录将 `bitmart_socket.conf` 原地改名为 `bitmart_socket.conf.disabled`，随后执行 `supervisorctl reread`、`supervisorctl update`；确认活动配置和状态中不再存在 BitMart。
+3. 上传两份 Model 和三份 Tool 脚本，核对 SHA-256；执行两份 PHP `php -l` 与三份脚本 `bash -n`。
+4. 如生产会运行 `frequency_stats`，先停止并核实旧进程，再从新源码执行 `go build -trimpath -o bin/frequency_stats ./cmd_2/frequency_stats`；该诊断工具不得人工常驻，除非另有明确授权和有限生命周期。
+5. 验证自动 Symbol、充提批任务均不出现 BitMart；平台选项不再包含 17；等待 DB3 BitMart 行情 Key 按 TTL 消失。
+
+#### 回滚
+
+- 恢复两份 Model、三份脚本和 Go 源码的上一版本。
+- 将 `bitmart_socket.conf.disabled` 改回 `bitmart_socket.conf`，执行 `supervisorctl reread`、`supervisorctl update`，核实后由 Supervisor 恢复进程。
+- 无数据库回滚；不删除历史平台 17 数据。
+
+#### 本地验证
+
+- 两份 PHP `php -l`、三份 Bash `bash -n`、相关 Go 包测试和两个仓库 `git diff --check` 均通过。
+- 服务器进程停止、Supervisor 重载和 Redis DB3 TTL 清理仍待生产验证。
+
 ### 2026-08-13 / CM-20260813-EXTREME-REDIS-V1 / 极端行情 Go 内存计算与 Redis 榜单
 
 #### 基本信息
@@ -114,9 +167,9 @@
 | 环境 | 当前为本地开发；测试、预发布、生产目标待定 |
 | 变更目标 | 直接沿用 `market_depth` 监控规则；新规则首次真实异动时只向现有 `market_change` INSERT 一条并取得原生 ID，随后将 5 分钟计算与榜单迁移到 Go 内存和 Redis，停止高频 MySQL UPDATE |
 | cryptomonitor 开发基线 | `22718238a39e8a64a90e159f65b2f069d41be93f` |
-| cryptomonitor 候选提交 | 待实现、评审并提交后补齐 |
+| cryptomonitor 候选提交 | `6c8867097b29721419f5ee28fd07c199b3c07d63` |
 | go_project 开发基线 | `6823eccf4c72ffea5d99d42bfc72bc1b5b02b5ef` |
-| go_project 候选提交 | 待实现、评审并提交后补齐；该仓库在本台账创建前已有未提交改动，其归属及是否纳入本次候选发布需单独确认 |
+| go_project 候选提交 | `3490fadd2b1bef3f7183e6d86a739678d7c65493`（仅本地提交，不推送） |
 | 服务器目标 | 主机标识待补齐；已确认路径基线：Go `/www/wwwroot/go_project/exchange_hub`，Laravel `/www/wwwroot/bishujucoin.com`，前端先 `/www/wwwroot/bishujucoin.com/public/nweweb` 验收、再以同一产物切换 `/www/wwwroot/bishujucoin.com/public/web`，PHP 任务 `/www/wwwroot/tool`；Supervisor include 绝对路径待现场只读核实 |
 | 实施负责人 | 待指定 |
 | 部署负责人 | 待指定 |
