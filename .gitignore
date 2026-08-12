@@ -30,6 +30,11 @@
 **/.well-known/
 **/.user.ini
 **/*_backup.php
+**/__pycache__/
+**/*.py[cod]
+**/build/
+**/*.egg-info/
+**/*.log
 
 # Backups and deployment artifacts
 release-artifacts/

@@ -1,0 +1,12 @@
+[program:okex_server]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/app/Socket/okex_server.php start 
+autostart=true
+autorestart=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/okex_server.log
+stopwaitsecs=3600
+priority=1
+

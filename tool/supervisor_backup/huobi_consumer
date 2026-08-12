@@ -1,0 +1,11 @@
+[program:huobi_consumer]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/artisan start_huobi_consumer 
+autostart=true
+autorestart=true
+user=root
+numprocs=5
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/huobi_consumer.log
+stopwaitsecs=3600
+priority=100

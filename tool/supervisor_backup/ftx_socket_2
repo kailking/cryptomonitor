@@ -1,0 +1,11 @@
+[program:ftx_socket_2]
+process_name=%(program_name)s_%(process_num)02d
+command=/root/.pyenv/versions/3.6.4/bin/python /www/wwwroot/tool/app/python/ftx/ftx_2.py
+autostart=true
+autorestart=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/ftx_socket_2.log
+stopwaitsecs=3600
+priority=1

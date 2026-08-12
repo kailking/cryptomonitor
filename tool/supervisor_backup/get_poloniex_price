@@ -1,0 +1,11 @@
+[program:get_poloniex_price]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/artisan get_poloniex_price
+autostart=true
+autorestart=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/get_poloniex_price.log
+stopwaitsecs=3600
+priority=1

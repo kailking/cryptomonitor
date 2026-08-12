@@ -1,0 +1,11 @@
+[program:get_mexc_price]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/artisan get_mexc_price 1
+autostart=true
+autorestart=true
+user=root
+numprocs=3
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/get_mexc_price.log
+stopwaitsecs=3600
+priority=1

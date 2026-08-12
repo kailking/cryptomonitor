@@ -1,0 +1,13 @@
+[program:depth_consumer]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/artisan start_depth_symbol_consumer
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=root
+numprocs=12
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/depth_consumer_%(process_num)d.log
+stopwaitsecs=3600
+priority=970

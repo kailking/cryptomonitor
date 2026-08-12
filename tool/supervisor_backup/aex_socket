@@ -1,0 +1,11 @@
+[program:aex_socket]
+process_name=%(program_name)s_%(process_num)02d
+command=python /www/wwwroot/tool/app/python/aex.py
+autostart=true
+autorestart=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/aex_socket.log
+stopwaitsecs=3600
+priority=1

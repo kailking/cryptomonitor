@@ -1,0 +1,13 @@
+[program:depth_distriputor]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/artisan depth_symbol_distributor
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/depth_distributor.log
+stopwaitsecs=3600
+priority=970

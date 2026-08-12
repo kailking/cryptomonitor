@@ -1,0 +1,19 @@
+2024-07-04 16:59:41 Connection ws://ws.okex.com:8443/ws/v5/public
+2024-07-04 16:59:42 onerror code:1 msg:php_network_getaddresses: getaddrinfo failed: Name or service not known
+2024-07-04 16:59:42 public reconnection
+2024-07-04 16:59:44 listen public
+2024-07-04 16:59:46 listen public
+2024-07-04 16:59:48 listen public
+2024-07-04 16:59:50 listen public
+2024-07-04 16:59:53 onerror code:1 msg:php_network_getaddresses: getaddrinfo failed: Name or service not known
+2024-07-04 16:59:53 public reconnection
+2024-07-04 16:59:53 listen public
+2024-07-04 16:59:55 listen public
+2024-07-04 16:59:57 listen public
+2024-07-04 16:59:59 listen public
+2024-07-04 17:00:01 listen public
+2024-07-04 17:00:02 public send ping
+2024-07-04 17:00:04 onerror code:1 msg:php_network_getaddresses: getaddrinfo failed: Name or service not known
+2024-07-04 17:00:04 public reconnection
+2024-07-04 17:00:04 listen public
+2024-07-04 17:00:06 listen public

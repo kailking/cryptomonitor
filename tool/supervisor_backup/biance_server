@@ -1,0 +1,11 @@
+[program:biance_server]
+process_name=%(program_name)s_%(process_num)02d
+command=php /www/wwwroot/tool/app/Socket/biance_server.php start -d
+autostart=true
+autorestart=true
+user=root
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/tool/storage/logs/supervisor/biance_server.log
+stopwaitsecs=3600
+priority=1
