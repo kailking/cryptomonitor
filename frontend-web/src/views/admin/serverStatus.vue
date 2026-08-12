@@ -25,36 +25,9 @@
 <template>
   <div class="app-container">
     <div class="filter-container" style="margin-bottom: 10px">
-      <!-- 自动刷新
-      <el-select
-        v-model="second"
-        placeholder="秒数"
-        style="width: 150px"
-        class="filter-item"
-        @change="changeSecond"
-      >
-        <el-option :key="5000" :value="5000" label="5秒" />
-        <el-option :key="10000" :value="10000" label="10秒" />
-        <el-option :key="15000" :value="15000" label="15秒" />
-      </el-select>
-
-      <el-switch
-        v-model="refresh_button"
-        active-color="#13ce66"
-        inactive-color="#999"
-        :active-value="1"
-        :inactive-value="2"
-        @change="openRefresh"
-      /> -->
-      <el-button type="danger" @click="onRestartServer"> 重启服务器 </el-button>
-      <!-- <el-button
-        class="filter-item"
-        type="success"
-        icon="el-icon-search"
-        @click="handleFilter"
-      >
-        暂停服务
-      </el-button> -->
+      <el-button v-if="canRestartServer" type="danger" @click="onRestartServer">
+        重启服务器
+      </el-button>
     </div>
 
     <el-table
@@ -77,6 +50,7 @@
       <el-table-column align="center" label="操作" width="170">
         <template slot-scope="scope">
           <el-button
+            v-if="canRestartPlatform"
             size="mini"
             type="success"
             plain
@@ -90,71 +64,44 @@
 </template>
 <style src="vue-multiselect/dist/vue-multiselect.min.css"></style>
 <script>
-import { getSystemLogType, postRestartServer, getSystemLog } from "@/api/table";
-import { getPlatformList } from "@/api/table";
-import { settingServer } from "@/api/setting";
-import Pagination from "@/components/pagination";
-const defaultData = {
-  id: "",
-  account: "",
-  type_text: "",
-  remark: "",
-  created_at: "",
-};
+import { getPlatformList, postRestartServer } from "@/api/table";
+import { restartPlatform } from "@/api/setting";
+import { hasPermission } from "@/utils/permissions";
 
 export default {
-  components: { Pagination },
-  filters: {
-    statusFilter(status) {
-      const statusMap = {
-        1: "success",
-        0: "danger",
-      };
-      return statusMap[status];
-    },
-  },
   data() {
     return {
-      topic: Object.assign({}, defaultData),
-      index: 0,
-      routes: [],
-      list: [],
       loading: true,
-      logTypeList: [],
-      showAll: false,
-      query: {
-        order: "",
-        page: 1,
-        page_size: 50,
-        search: "",
-        type: "",
-        timestamp_start: "",
-        timestamp_end: "",
-      },
-      lists: [],
-      options: [],
-      intervalId: null,
-      second: 5000,
-      refresh_button: 2,
       platformList: [],
     };
   },
+  computed: {
+    canRestartServer() {
+      return hasPermission(
+        "system.server.restart",
+        this.$store.getters.permissions
+      );
+    },
+    canRestartPlatform() {
+      return hasPermission(
+        "system.platform.restart",
+        this.$store.getters.permissions
+      );
+    },
+  },
   created() {
-    // 改成在标记条件后初始化
-    this.getTopics();
-    this.initPlatform();
     this.getPlatformList();
-  },
-  mounted() {
-    /**
-     * 收起搜索
-     */
-  },
-  beforeDestroy() {
-    clearInterval(this.intervalId);
   },
   methods: {
     onRestartServer() {
+      if (
+        !hasPermission(
+          "system.server.restart",
+          this.$store.getters.permissions
+        )
+      ) {
+        return;
+      }
       this.$msgbox
         .confirm(
           "确定重启服务器吗？,行情加载需要几分钟请耐心等待",
@@ -182,6 +129,14 @@ export default {
         });
     },
     async onRestartPlatform(row) {
+      if (
+        !hasPermission(
+          "system.platform.restart",
+          this.$store.getters.permissions
+        )
+      ) {
+        return;
+      }
       this.$msgbox
         .confirm(`确定重启 ${row.item} 平台吗？`, "重启平台", {
           confirmButtonText: "确定",
@@ -190,7 +145,7 @@ export default {
         })
         .then(async () => {
           try {
-            await settingServer({ platform: row.key });
+            await restartPlatform({ platform: row.key });
             this.$message({
               type: "success",
               message: "重启指令已发送!",
@@ -202,45 +157,6 @@ export default {
             });
           }
         });
-    },
-    dataRefresh() {
-      // 计时器正在进行中，退出函数
-      if (this.intervalId != null) {
-        return;
-      }
-      // 计时器为空，操作
-      this.intervalId = setInterval(() => {
-        if (this.refresh_button === 1) {
-          this.getTopics(true);
-        }
-      }, this.second);
-    },
-    changeSecond() {
-      this.dataRefresh();
-    },
-    async getTopics() {
-      this.loading = true;
-      const res = await getSystemLog(this.query);
-      this.list = res.data;
-      this.loading = false;
-    },
-    handleFilter() {
-      this.query.page = 1;
-      this.getTopics();
-    },
-    handleSizeChange(size) {
-      this.query.page_size = size;
-      this.getTopics();
-    },
-    handleCurrentChange(page) {
-      this.query.page = page;
-      this.getTopics();
-    },
-    async initPlatform() {
-      const res2 = await getSystemLogType();
-      // console.log(res2.data)
-      this.logTypeList = res2.data;
-      // console.log(this.platformList)
     },
     async getPlatformList() {
       this.loading = true;

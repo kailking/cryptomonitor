@@ -20,6 +20,7 @@ class WebSocketManager {
     this.reconnectDelay = options.reconnectDelay || 5000;
     this.maxReconnectAttempts = options.maxReconnectAttempts || 10;
     this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
     this.listeners = {};
     this.isIntentionallyClosed = false;
   }
@@ -83,26 +84,29 @@ class WebSocketManager {
           console.log("WebSocket closed");
           this.emit("close");
 
-          if (
-            !this.isIntentionallyClosed &&
-            this.reconnectAttempts < this.maxReconnectAttempts
-          ) {
-            this.reconnectAttempts++;
-            console.log(
-              `Reconnect in ${this.reconnectDelay}ms (attempt ${
-                this.reconnectAttempts
-              })`
-            );
-            setTimeout(() => {
-              this.connect();
-            }, this.reconnectDelay);
-          }
+          this.scheduleReconnect();
         };
       } catch (error) {
         console.error("WebSocket create failed:", error);
         reject(error);
       }
     });
+  }
+
+  scheduleReconnect() {
+    if (
+      this.isIntentionallyClosed ||
+      this.reconnectAttempts >= this.maxReconnectAttempts ||
+      this.reconnectTimer
+    ) {
+      return;
+    }
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.isIntentionallyClosed) return;
+      this.connect().catch(error => this.emit("error", error));
+    }, this.reconnectDelay);
   }
 
   decodeMessage(data) {
@@ -119,7 +123,12 @@ class WebSocketManager {
     }
 
     if (ArrayBuffer.isView(data)) {
-      return this.decodeArrayBuffer(data.buffer);
+      const bytes = new Uint8Array(
+        data.buffer,
+        data.byteOffset,
+        data.byteLength
+      );
+      return this.decodeArrayBuffer(bytes.slice().buffer);
     }
 
     return Promise.resolve({ text: String(data), bytes: null });
@@ -129,10 +138,11 @@ class WebSocketManager {
     const bytes = new Uint8Array(buffer);
     const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 
-    if (isGzip && typeof DecompressionStream !== "undefined") {
+    const DecompressionStreamImpl = window.DecompressionStream;
+    if (isGzip && typeof DecompressionStreamImpl !== "undefined") {
       const stream = new Blob([bytes])
         .stream()
-        .pipeThrough(new DecompressionStream("gzip"));
+        .pipeThrough(new DecompressionStreamImpl("gzip"));
       return new Response(stream).arrayBuffer().then(buf => {
         const outBytes = new Uint8Array(buf);
         const text = new TextDecoder("utf-8").decode(outBytes);
@@ -577,6 +587,10 @@ class WebSocketManager {
    */
   disconnect() {
     this.isIntentionallyClosed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

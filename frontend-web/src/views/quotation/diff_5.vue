@@ -463,7 +463,13 @@
             <template slot-scope="scope">
               <div
                 style="color: blue; cursor: pointer"
-                @click="jumpLink(scope.row.buy_platform, scope.row.symbol)"
+                @click="
+                  jumpLink(
+                    scope.row.buy_platform,
+                    scope.row.symbol,
+                    scope.row.quote_name
+                  )
+                "
               >
                 {{ scope.row.platform_buy }}
                 {{ scope.row.quote_name == "USDT" ? "" : scope.row.quote_name }}
@@ -485,7 +491,13 @@
                   align-items: center;
                   justify-content: center;
                 "
-                @click="jumpLink(scope.row.sell_platform, scope.row.symbol)"
+                @click="
+                  jumpLink(
+                    scope.row.sell_platform,
+                    scope.row.symbol,
+                    scope.row.sell_quote_name || scope.row.quote_name
+                  )
+                "
               >
                 {{ scope.row.platform_sell }}
                 {{
@@ -910,7 +922,13 @@
             <template slot-scope="scope">
               <div
                 style="cursor: pointer; color: blue"
-                @click="jumpLink(scope.row.buy_platform, scope.row.symbol)"
+                @click="
+                  jumpLink(
+                    scope.row.buy_platform,
+                    scope.row.symbol,
+                    scope.row.quote_name
+                  )
+                "
               >
                 {{ scope.row.platform_buy }}
                 {{ scope.row.quote_name == "USDT" ? "" : scope.row.quote_name }}
@@ -932,7 +950,13 @@
                   align-items: center;
                   justify-content: center;
                 "
-                @click="jumpLink(scope.row.sell_platform, scope.row.symbol)"
+                @click="
+                  jumpLink(
+                    scope.row.sell_platform,
+                    scope.row.symbol,
+                    scope.row.sell_quote_name || scope.row.quote_name
+                  )
+                "
               >
                 {{ scope.row.platform_sell }}
                 {{
@@ -1846,6 +1870,7 @@ import {
 } from "@/utils/index";
 import {
   platformText,
+  buildPlatformTradeUrl,
   chainList,
   parsePercent,
   calcumNum,
@@ -2567,20 +2592,9 @@ export default {
         }
       }
     },
-    jumpLink(platform, symbol) {
-      const plat_temp = platformText();
-      for (let i = 0; i < plat_temp.length; i++) {
-        if (plat_temp[i]["id"] == platform) {
-          let url = "";
-          if (plat_temp[i]["url_type"]) {
-            url = plat_temp[i]["url"].replace(/btc/gi, symbol.toLowerCase());
-          } else {
-            url = plat_temp[i]["url"].replace(/btc/gi, symbol.toUpperCase());
-          }
-          window.open(url);
-          break;
-        }
-      }
+    jumpLink(platform, symbol, quoteName) {
+      const url = buildPlatformTradeUrl(platform, symbol, quoteName);
+      if (url) window.open(url);
     },
     setWithdrawFee(fee) {
       const val = Number(this.with_info.buy_price_plus) * parsePercent(fee);

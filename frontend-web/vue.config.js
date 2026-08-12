@@ -25,7 +25,7 @@ module.exports = {
    * Detail: https://cli.vuejs.org/config/#publicpath
    */
   publicPath: "./",
-  outputDir: "web",
+  outputDir: process.env.OUTPUT_DIR || "dist/web",
   assetsDir: "static",
   lintOnSave: process.env.NODE_ENV === "development",
   productionSourceMap: false,
@@ -38,12 +38,10 @@ module.exports = {
     },
     proxy: {
       [process.env.VUE_APP_BASE_API]: {
-        target:
-          process.env.VUE_APP_DEV_PROXY_TARGET || "http://127.0.0.1:8000/",
+        target: "http://8.129.88.114:28181/",
         changeOrigin: true
       }
     }
-    // before: require('./mock/mock-server.js')
   },
   configureWebpack: {
     // provide the app's title in webpack's name field, so that

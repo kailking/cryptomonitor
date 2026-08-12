@@ -75,7 +75,6 @@
 <script>
 import * as echarts from "echarts";
 import { createWebSocket } from "@/utils/websocket";
-import { getBuyKlineData, getSellKlineData } from "@/api/kline";
 import { covertime } from "@/utils/index";
 import ChangePercent from "./changePercent.vue";
 export default {
@@ -700,7 +699,6 @@ export default {
 
       // 根据涨跌设置颜色
       const lineColor = isLastUp ? "#2dc08e" : "#f92855";
-      const textColor = isLastUp ? "#2dc08e" : "#f92855";
 
       const option = {
         animation: false,

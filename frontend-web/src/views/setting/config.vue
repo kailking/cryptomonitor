@@ -76,6 +76,7 @@
         搜索
       </el-button>
       <el-button
+        v-if="canUpdateMarket"
         :size="is_mobile ? 'small' : 'default'"
         class="filter-item"
         type="danger"
@@ -84,6 +85,7 @@
         批量禁用
       </el-button>
       <el-button
+        v-if="canUpdateMarket"
         :size="is_mobile ? 'small' : 'default'"
         class="filter-item"
         type="success"
@@ -91,7 +93,6 @@
       >
         批量启用
       </el-button>
-      <!-- <el-button type="danger" @click="onRestartServer"> 重启服务器 </el-button> -->
     </div>
 
     <el-table
@@ -105,6 +106,7 @@
       @header-dragend="handleHeaderDragend"
     >
       <el-table-column
+        v-if="canUpdateMarket"
         type="selection"
         prop="selection"
         :width="getWidth('selection', 40)"
@@ -174,7 +176,7 @@
       >
         <template slot-scope="scope">
           <el-button
-            v-if="scope.row.is_show == 1"
+            v-if="canUpdateMarket && scope.row.is_show == 1"
             size="mini"
             type="danger"
             plain
@@ -182,7 +184,7 @@
             >禁用</el-button
           >
           <el-button
-            v-else
+            v-if="canUpdateMarket && scope.row.is_show != 1"
             size="mini"
             type="primary"
             plain
@@ -205,7 +207,7 @@ import { getPlatformList } from "@/api/table";
 import { getDiffSetting, switchDiff, switchDiffBatch } from "@/api/setting";
 import Pagination from "@/components/pagination";
 import { isMobile } from "@/utils/index";
-import { postRestartServer } from "@/api/table";
+import { hasPermission } from "@/utils/permissions";
 const defaultData = {
   id: "",
   symbol: "",
@@ -274,6 +276,14 @@ export default {
       is_mobile: isMobile(),
     };
   },
+  computed: {
+    canUpdateMarket() {
+      return hasPermission(
+        "settings.market.update",
+        this.$store.getters.permissions
+      );
+    },
+  },
 
   created() {
     // 改成在标记条件后初始化
@@ -286,33 +296,6 @@ export default {
      */
   },
   methods: {
-    onRestartServer() {
-      this.$msgbox
-        .confirm(
-          "确定重启服务器吗？,行情加载需要几分钟请耐心等待",
-          "重启服务器",
-          {
-            confirmButtonText: "确定",
-            cancelButtonText: "取消",
-            type: "warning",
-          }
-        )
-        .then(() => {
-          postRestartServer()
-            .then((res) => {
-              this.$message({
-                type: "success",
-                message: "重启服务器成功!",
-              });
-            })
-            .catch(() => {
-              this.$message({
-                type: "error",
-                message: "重启失败，请稍后再试!",
-              });
-            });
-        });
-    },
     getWidth(prop, defaultWidth) {
       const saved = localStorage.getItem(`diff_table_col_${prop}_width`);
       return saved ? parseInt(saved) : defaultWidth;
@@ -321,6 +304,14 @@ export default {
       localStorage.setItem(`diff_table_col_${column.property}_width`, newWidth);
     },
     handleSwitchBatch(is_show) {
+      if (
+        !hasPermission(
+          "settings.market.update",
+          this.$store.getters.permissions
+        )
+      ) {
+        return;
+      }
       if (!this.selectList.length) {
         return this.$message.error("至少勾选一个交易对");
       }
@@ -337,6 +328,14 @@ export default {
     },
 
     handleSelectionChange(val) {
+      if (
+        !hasPermission(
+          "settings.market.update",
+          this.$store.getters.permissions
+        )
+      ) {
+        return;
+      }
       this.selectList = val;
     },
     async getTopics() {
@@ -364,6 +363,14 @@ export default {
       // console.log(this.platformList)
     },
     async filterId(id) {
+      if (
+        !hasPermission(
+          "settings.market.update",
+          this.$store.getters.permissions
+        )
+      ) {
+        return;
+      }
       const r = await switchDiff(id);
       if (r.code === 200) {
         this.$message("更新成功");

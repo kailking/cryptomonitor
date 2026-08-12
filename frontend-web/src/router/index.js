@@ -17,7 +17,7 @@ import Layout from "@/layout";
  * redirect: noRedirect           if set noRedirect will no redirect in the breadcrumb
  * name:'router-name'             the name is used by <keep-alive> (must set!!!)
  * meta : {
-    roles: ['admin','editor']    control the page roles (you can set multiple roles)
+    permissions: ['users.view']  control the page permissions
     title: 'title'               the name show in sidebar and breadcrumb (recommend set)
     icon: 'svg-name'             the icon show in the sidebar
     breadcrumb: false            if set false, the item will hidden in breadcrumb(default is true)
@@ -28,7 +28,7 @@ import Layout from "@/layout";
 /**
  * constantRoutes
  * a base page that does not have permission requirements
- * all roles can be accessed
+ * all users can access
  */
 export const constantRoutes = [
   {
@@ -230,7 +230,7 @@ export const constantRoutes = [
 
 /**
  * asyncRoutes
- * the routes that need to be dynamically loaded based on user roles
+ * the routes that need to be dynamically loaded based on user permissions
  */
 export const asyncRoutes = [
   {
@@ -240,15 +240,28 @@ export const asyncRoutes = [
     name: "用户管理",
     meta: {
       title: "用户管理",
-      icon: "peoples",
-      roles: ["admin"]
+      icon: "peoples"
     },
     children: [
       {
         path: "user_list",
         name: "用户列表",
         component: () => import("@/views/user/user_list"),
-        meta: { title: "用户列表", icon: "peoples" }
+        meta: {
+          title: "用户列表",
+          icon: "peoples",
+          permissions: ["users.view"]
+        }
+      },
+      {
+        path: "permissions",
+        name: "用户权限管理",
+        component: () => import("@/views/user/permissions.vue"),
+        meta: {
+          title: "用户权限管理",
+          icon: "lock",
+          permissions: ["permissions.manage"]
+        }
       }
     ]
   },
@@ -257,25 +270,37 @@ export const asyncRoutes = [
     component: Layout,
     redirect: "/setting/diff_setting",
     name: "系统管理",
-    meta: { title: "系统管理", icon: "drag", roles: ["admin"] },
+    meta: { title: "系统管理", icon: "drag" },
     children: [
       {
         path: "diff_setting",
         name: "系统行情配置",
         component: () => import("@/views/setting/config"),
-        meta: { title: "行情配置", icon: "table" }
+        meta: {
+          title: "行情配置",
+          icon: "table",
+          permissions: ["settings.market.view"]
+        }
       },
       {
         path: "system_log",
         name: "系统日志",
         component: () => import("@/views/admin/system_log"),
-        meta: { title: "系统日志", icon: "eye-open" }
+        meta: {
+          title: "系统日志",
+          icon: "eye-open",
+          permissions: ["system.logs.view"]
+        }
       },
       {
         path: "server_status",
         name: "重启服务器",
         component: () => import("@/views/admin/serverStatus"),
-        meta: { title: "重启服务器", icon: "eye-open" }
+        meta: {
+          title: "重启服务器",
+          icon: "eye-open",
+          permissions: ["system.server.view"]
+        }
       }
     ]
   },
