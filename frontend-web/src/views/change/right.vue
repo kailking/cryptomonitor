@@ -19,6 +19,15 @@
   color: #009688;
   background: #f0f9ff;
 }
+.market-data-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.market-data-unavailable .el-alert {
+  flex: 1;
+}
 </style>
 <template>
   <div>
@@ -142,6 +151,27 @@
           </el-checkbox>
         </div>
       </div>
+    </div>
+    <div
+      v-if="dataUnavailable"
+      class="market-data-unavailable"
+      role="alert"
+    >
+      <el-alert
+        title="实时行情暂不可用，已停止自动刷新，请手动重试"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-button
+        type="danger"
+        size="small"
+        plain
+        :loading="loading"
+        @click="retryTopics"
+      >
+        手动重试
+      </el-button>
     </div>
     <el-table
       :key="tablekey"
@@ -427,6 +457,7 @@ export default {
       second: 5000,
       intervalId: null,
       isDisposed: false,
+      dataUnavailable: false,
       is_mobile: isMobile(),
     };
   },
@@ -494,15 +525,27 @@ export default {
         res = await getMarketChange(this.query);
       } catch (error) {
         if (this.topicsRequestGuard.isCurrent(requestToken)) {
+          this.list = {
+            data: [],
+            current_page: this.query.page,
+            total: 0,
+          };
+          this.dataUnavailable = true;
+          this.refresh_button = 2;
+          this.intervalId = stopInterval(this.intervalId);
           this.loading = false;
         }
         return;
       }
       if (!this.topicsRequestGuard.isCurrent(requestToken)) return;
       this.list = res.data;
+      this.dataUnavailable = false;
       if (this.topicsRequestGuard.isCurrent(requestToken)) {
         this.loading = false;
       }
+    },
+    retryTopics() {
+      return this.getTopics();
     },
     async initSymbols() {
       const res3 = await getSymbolOption();

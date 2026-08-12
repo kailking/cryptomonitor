@@ -1,0 +1,309 @@
+# Crypto Monitor 部署台账
+
+> 本台账记录 `cryptomonitor` 及其关联 Go 行情计算服务的每次发布事实。部署前必须补齐发布清单、回滚方案和负责人；部署后必须补齐实际操作、验证证据和最终状态。禁止把密码、Token、API Key、私钥或 `.env` 真实值写入本文件。
+>
+> 两个 Git 仓库统一使用根目录文件名 `DEPLOYMENT_LEDGER.md`，正文使用中文，各自维护独立提交记录并在跨仓库发布时相互引用。
+
+## 1. 适用范围
+
+- `frontend-web/`：Vue 前端页面与静态构建产物。
+- `backend-api/`：Laravel API、路由、配置和数据库变更。
+- `tool/`：PHP 定时任务、常驻命令及其 Supervisor 配置。
+- 关联仓库 `/Users/apple/Development/golang/wwwroot/go_project`：行情 WebSocket、内存计算与 Redis 结果发布程序。关联仓库有独立 Git 历史，提交号和上传文件必须单独记录，不能只写 `cryptomonitor` 的提交号。
+
+## 2. 记录规则
+
+1. 每次发布建立一条独立记录，按日期倒序排列，发布编号不得复用。
+2. 状态只使用：`开发中`、`待部署`、`部署中`、`已部署`、`已回滚`、`已取消`。
+3. `开发中`允许候选提交、上传文件和服务器目标暂填“待定”；改为`待部署`前，所有必填项必须有明确值或明确写“无”。
+4. 提交必须记录每个涉及仓库的完整 40 位 SHA；不得只写分支名、`latest` 或工作区状态。
+5. “需上传文件”必须是相对仓库根目录的逐文件清单。目录、通配符和“全部上传”不能代替最终清单；前端构建产物需另记产物哈希。
+6. SQL 必须记录文件名、执行顺序、适用环境、执行结果和回滚方式；无 SQL 时明确写“无”。生产执行前应记录数据库备份位置和校验值，台账中不得包含连接密码。
+7. 环境变量只记录变量名、是否新增或变更、作用和是否已验证，不记录真实值。
+8. 进程操作必须记录服务名、服务器、工作目录、启动方式及操作前后状态。不能仅凭进程名或端口杀进程；先核实 PID、命令路径或服务单元。
+9. 验证项必须写实际结果及证据位置。未执行的检查只能写“待验证”，不能写“通过”。
+10. 回滚方案必须在部署前完成，至少覆盖代码、SQL、环境变量、进程和缓存/Redis 数据源切换。
+11. “负责人”至少区分实施、部署、验证和回滚负责人；同一人可以兼任，但必须显式记录。
+12. 发布完成后保留记录，不删除失败步骤；以补充说明和最终状态反映真实过程。
+
+## 3. 标准记录模板
+
+复制以下模板，在本文件“部署记录”顶部新增一条：
+
+```markdown
+### YYYY-MM-DD / <发布编号> / <简短标题>
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 开发中 / 待部署 / 部署中 / 已部署 / 已回滚 / 已取消 |
+| 计划日期与窗口 | YYYY-MM-DD HH:mm-HH:mm，时区 |
+| 实际开始/结束时间 | 待执行 |
+| 环境 | 本地开发 / 测试 / 预发布 / 生产 |
+| 变更目标 | 一句话说明 |
+| cryptomonitor 提交 | 完整 40 位 SHA |
+| go_project 提交 | 完整 40 位 SHA，未涉及则写“无” |
+| 服务器目标 | 主机标识、应用目录；不写凭据 |
+| 实施负责人 | 姓名或账号 |
+| 部署负责人 | 姓名或账号 |
+| 验证负责人 | 姓名或账号 |
+| 回滚负责人 | 姓名或账号 |
+
+#### 需上传文件
+
+| 仓库 | 相对路径 | 目标路径 | SHA-256/产物标识 | 操作 |
+|---|---|---|---|---|
+| cryptomonitor | 待补齐 | 待补齐 | 待补齐 | 新增/替换/删除 |
+
+#### SQL
+
+| 顺序 | SQL 文件或语句编号 | 作用 | 备份/前置条件 | 执行结果 | 回滚 |
+|---|---|---|---|---|---|
+| - | 无或待补齐 | - | - | 待执行 | - |
+
+#### 环境变量
+
+| 组件 | 变量名 | 新增/变更 | 作用 | 验证方式 | 结果 |
+|---|---|---|---|---|---|
+| - | 无或待补齐 | - | - | - | 待验证 |
+
+#### 进程操作
+
+| 顺序 | 服务器/组件 | 操作 | 命令或服务单元 | 操作前状态 | 操作后状态 |
+|---|---|---|---|---|---|
+| 1 | 待补齐 | 待补齐 | 待补齐 | 待核实 | 待验证 |
+
+#### 验证
+
+| 类别 | 检查项 | 预期 | 实际结果 | 证据 |
+|---|---|---|---|---|
+| 自动化 | 待补齐 | 通过 | 待验证 | 待补齐 |
+| API | 待补齐 | 契约兼容 | 待验证 | 待补齐 |
+| 浏览器 | 待补齐 | 交互正常 | 待验证 | 待补齐 |
+| 运行状态 | 待补齐 | 无异常 | 待验证 | 待补齐 |
+
+#### 回滚
+
+- 触发条件：待补齐。
+- 代码/文件：待补齐。
+- SQL：待补齐或无。
+- 环境变量：待补齐或无。
+- 进程：待补齐。
+- Redis/缓存：待补齐或无。
+- 回滚后验证：待补齐。
+
+#### 结果与补充
+
+- 最终状态：待执行。
+- 异常与处置：无或待补齐。
+- 后续事项：无或待补齐。
+```
+
+## 4. 部署记录
+
+### 2026-08-13 / CM-20260813-EXTREME-REDIS-V1 / 极端行情 Go 内存计算与 Redis 榜单
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 待部署；采用维护窗口直接切换 |
+| 计划日期与窗口 | 2026-08-13，一小时维护窗口；实际起止时间现场记录，Asia/Shanghai |
+| 实际开始/结束时间 | 未部署 |
+| 环境 | 当前为本地开发；测试、预发布、生产目标待定 |
+| 变更目标 | 直接沿用 `market_depth` 监控规则；新规则首次真实异动时只向现有 `market_change` INSERT 一条并取得原生 ID，随后将 5 分钟计算与榜单迁移到 Go 内存和 Redis，停止高频 MySQL UPDATE |
+| cryptomonitor 开发基线 | `22718238a39e8a64a90e159f65b2f069d41be93f` |
+| cryptomonitor 候选提交 | 待实现、评审并提交后补齐 |
+| go_project 开发基线 | `6823eccf4c72ffea5d99d42bfc72bc1b5b02b5ef` |
+| go_project 候选提交 | 待实现、评审并提交后补齐；该仓库在本台账创建前已有未提交改动，其归属及是否纳入本次候选发布需单独确认 |
+| 服务器目标 | 主机标识待补齐；已确认路径基线：Go `/www/wwwroot/go_project/exchange_hub`，Laravel `/www/wwwroot/bishujucoin.com`，前端先 `/www/wwwroot/bishujucoin.com/public/nweweb` 验收、再以同一产物切换 `/www/wwwroot/bishujucoin.com/public/web`，PHP 任务 `/www/wwwroot/tool`；Supervisor include 绝对路径待现场只读核实 |
+| 实施负责人 | 待指定 |
+| 部署负责人 | 待指定 |
+| 验证负责人 | 待指定 |
+| 回滚负责人 | 待指定 |
+
+#### 已确认架构边界
+
+```text
+MySQL market_depth 现有监控规则
+  -> Go 定时热加载；币种更新新增规则后自动发现
+  -> Redis DB 3 读取各平台卖一盘口
+  -> Go 内存保存至少 5 分钟价格历史并计算涨跌幅
+  -> 新规则首次达到真实异动条件时 INSERT market_change，取得原生自增 ID
+  -> 后续不 UPDATE MySQL，只更新内存与 Redis
+  -> Redis 独立极端行情详情与上涨/下跌榜单
+  -> Laravel 保留登录、用户屏蔽、平台过滤、搜索和分页
+  -> frontend-web 保持现有接口地址；实时源不可用时清榜、停刷并允许手动重试
+```
+
+- `market_depth` 继续作为监控项及交易对启停的唯一规则源，`market_change` 只承担既有记录兼容和新规则首次真实异动时的原生 ID 分配。
+- 新规则首次触发允许一次低频 INSERT；取得 ID 后，实时价格、五分钟历史和当前结果不再写入 `market_depth.price/number`，也不再 UPDATE `market_change`。
+- 本期不新增表、不增加索引、不执行 backfill，也不改写或迁移 `market_change_user_filter`。
+- 第一阶段保持前端接口契约，避免把数据源迁移和 UI 重构混在同一次发布。
+- Redis 结果必须使用独立命名空间和原子代际切换，不能让半轮新数据与半轮旧数据混合。
+- 本期明确不增加独立采集时间戳：行情有效性依赖 Redis DB 3 现有深度 Key 的 TTL，Key 过期消失后 Go 立即撤榜。这是已确认的一期取舍，更严格的消息时间对齐留待后续独立评估。
+
+#### 需上传文件
+
+生产运行源码已经逐项登记并按当前冻结工作树计算 SHA-256；提交后仍须复核提交内容与这些哈希一致。前端产物哈希需等 Node 14 构建冻结后补入。`backend-api` 生产根目录依据既有发布记录为 `/www/wwwroot/bishujucoin.com`；前端严格遵循 `frontend-web/docs/release-checklist.md`：同一次 `npm run build:web` 生成的 `dist/web` 及其哈希清单先发布到 `public/nweweb/` 验收，通过后将该批完全相同的产物字节原子切换到 `public/web/`，两次发布之间不得重新构建。Go 仓库文件见关联台账 `GO-20260813-EXTREME-REDIS-V1`，不得混入本仓库提交号。
+
+| 仓库 | 相对路径/产物 | 生产目标 | SHA-256/产物标识 | 操作 |
+|---|---|---|---|---|
+| cryptomonitor | `backend-api/app/Exceptions/MarketChangeRedisUnavailableException.php` | `/www/wwwroot/bishujucoin.com/app/Exceptions/MarketChangeRedisUnavailableException.php` | `b3ef894c004c9e7ab1eb4403e4ab3d77e49fce37969ae634c261ae640f117e21` | 新增 |
+| cryptomonitor | `backend-api/app/Http/Controllers/Api/QuotationController.php` | `/www/wwwroot/bishujucoin.com/app/Http/Controllers/Api/QuotationController.php` | `da089d9baf3f1d8e31eba92d8c1d3e6b625ae021e516e6ff15da5d93098706a5` | 替换 |
+| cryptomonitor | `backend-api/app/Services/MarketChangeDataSource.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeDataSource.php` | `a39fe22c097a80a371ffaa18343920233a35dcde5a721a488d1b9c370f91f593` | 新增 |
+| cryptomonitor | `backend-api/app/Services/MarketChangeRedisGenerationService.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeRedisGenerationService.php` | `b58ca2f88e8802d8b114310a3cb368a6d20d9b49e1ecea01fca0858efe86ca4c` | 新增 |
+| cryptomonitor | `backend-api/app/Services/MarketChangeResponseFormatter.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeResponseFormatter.php` | `f5f0fe85ec62ee5c45a22cd034e78167e7216b6a7e730b0273505295e15118e0` | 新增 |
+| cryptomonitor | `backend-api/app/Services/MarketChangeSymbolNormalizer.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeSymbolNormalizer.php` | `3a2fe93f36fa3dcc73ec9d3c43056a7f799f6bf2293c7d3259f697484c3c4ad8` | 新增 |
+| cryptomonitor | `backend-api/config/market_change.php` | `/www/wwwroot/bishujucoin.com/config/market_change.php` | `b2a137787ee99d93bbe89d66a9cc0538d6cf199c51b6f7d1ae13049228c430ed` | 新增 |
+| cryptomonitor | `frontend-web/dist/web/` 及该次构建的逐文件 SHA 清单 | 先覆盖 `/www/wwwroot/bishujucoin.com/public/nweweb/` 并验收；通过后以该清单覆盖的同一产物原子切换 `/www/wwwroot/bishujucoin.com/public/web/` | Node 14 单次构建完成后补文件树哈希；`nweweb` 与 `web` 均须复算一致 | 新构建产物；当前尚未生成；不得在两阶段之间重新构建 |
+| cryptomonitor | `tool/supervisor/market_change_to_redis_v2.conf` | Supervisor 实际 include 目录中的 `market_change_to_redis_v2.conf`；生产前现场确认精确绝对路径 | `bc3c78ed25b31ea035fdf024917a6c94c0b82bdfd111e271193199c52b449cf2` | 新增；唯一生产进程 owner；显式读取服务器 `.env` |
+
+以下文件进入 Git 候选提交和审查证据，但不直接覆盖生产运行目录：`README.md`、`DEPLOYMENT_LEDGER.md`、`backend-api/.env.example`、`backend-api/phpunit.xml`、`backend-api/tests/Feature/PermissionSchemaTest.php`、`backend-api/tests/Unit/MarketChangeControllerContractTest.php`、`backend-api/tests/Unit/MarketChangeDataSourceContractTest.php`、`backend-api/tests/Unit/MarketChangeRedisGenerationServiceTest.php`、`frontend-web/src/views/change/left.vue`、`frontend-web/src/views/change/right.vue`、`frontend-web/tests/unit/views/marketChangeUnavailable.spec.js`。其中两个 Vue 源文件只能进入上述单次构建产物，不能直接上传到 `public/nweweb/` 或 `public/web/`。
+
+#### SQL
+
+本期仓库 SQL 文件：无；migration：无；backfill：无；用户 filter 迁移：无。
+
+生产切换前仍需做只读基线与普通备份，但不作为数据库变更执行：记录启用 `market_depth` 卖盘规则数、可匹配的既有 `market_change` 数、现有 `market_change_user_filter` 数及表备份位置，并确认现网已有 `market_change(symbol, platform, period)` 唯一约束且没有业务重复；不满足即停止发布，本期不补 DDL。运行期唯一允许的新 MySQL 写入，是某条新规则第一次达到真实异动条件时向现有 `market_change` INSERT 一条记录并取得原生自增 ID；后续计算不得 UPDATE 该行。回滚不删除这类身份行，避免破坏已经引用该 ID 的用户屏蔽。
+
+#### 环境变量
+
+只记录变量名，真实值由服务器安全配置管理。本次一小时维护窗口不做数据源对照：部署 backend-api 时直接将 `MARKET_CHANGE_SOURCE` 配置为 `redis`；回滚时恢复为 `mysql`。修改后刷新 Laravel 配置缓存，任何检查和台账不得打印真实值。
+
+| 组件 | 变量名 | 新增/变更 | 作用 | 验证方式 | 结果 |
+|---|---|---|---|---|---|
+| backend-api | `MARKET_CHANGE_SOURCE` | 新增 | 本次部署使用 `redis`；回滚使用 `mysql`；Redis 异常不静默回退 | `php artisan config:clear` 后只核对当前枚举值 | 本地配置测试通过；生产待验证 |
+| backend-api | `MARKET_CHANGE_REDIS_DB` | 新增 | 极端行情结果 Redis DB，默认 9 | 与 Go 发布库一致 | 本地默认值通过；生产待验证 |
+| backend-api | `MARKET_CHANGE_REDIS_PREFIX` | 新增 | generation 前缀，默认 `v2:market_change` | 与唯一 Go 发布者完全一致 | 本地契约测试通过；生产待验证 |
+| backend-api | `MARKET_CHANGE_REDIS_MAX_AGE_SECONDS` | 新增 | API 接受的最大 generation 年龄，默认 5 秒 | 必须小于 generation TTL 至少 2 秒 | 本地边界测试通过；生产待验证 |
+| backend-api | `MARKET_CHANGE_ERROR_LOG_INTERVAL_SECONDS` | 新增 | Redis 503 报错日志限流秒数，默认 10 | Redis 故障演练核对日志频率 | 本地控制器测试通过；生产待验证 |
+| Go 极端行情服务 | `MYSQL_DSN`、`REDIS_ADDR`、`REDIS_PASSWORD` | 既有，本地真实值保留在未跟踪 `.env` | MySQL 读取规则、首次身份 INSERT 与 Redis DB3/DB9 连接 | 仅核对变量存在，不打印值 | 本地变量存在；生产待验证 |
+| Go 极端行情服务 | `MARKET_CHANGE_POLL_INTERVAL_MS`、`MARKET_CHANGE_RELOAD_INTERVAL_SECONDS`、`MARKET_CHANGE_REDIS_TIMEOUT_MS`、`MARKET_CHANGE_MGET_BATCH_SIZE`、`MARKET_CHANGE_MGET_WORKERS`、`MARKET_CHANGE_BASELINE_TOLERANCE_SECONDS`、`MARKET_CHANGE_PERIOD_SECONDS`、`MARKET_CHANGE_ENTER_PERCENT`、`MARKET_CHANGE_MAX_PERCENT`、`MARKET_CHANGE_HOLD_SECONDS`、`MARKET_CHANGE_GENERATION_TTL_SECONDS`、`MARKET_CHANGE_REDIS_MAX_AGE_SECONDS`、`MARKET_CHANGE_MAX_PRICE`、`MARKET_CHANGE_MAX_QUANTITY`、`MARKET_CHANGE_TIMEZONE`、`MARKET_CHANGE_REDIS_PREFIX` | 新增；除固定周期外可采用代码默认值 | 轮询、规则热加载、批读、固定 5 分钟窗口、全局阈值/保留、TTL、数值上限、时区和命名空间；`MARKET_CHANGE_PERIOD_SECONDS` 必须为 `300`，其他值启动即拒绝，以保持 PHP/API 与 `market_change.period=5` 契约 | 启动日志只输出非敏感参数；验证周期只能为 `300`，并确保前后端 prefix/max-age 对齐 | 最终实现测试通过；生产待验证 |
+
+#### 进程操作
+
+| 顺序 | 服务器/组件 | 操作 | 命令或服务单元 | 操作前状态 | 操作后状态 |
+|---|---|---|---|---|---|
+| 1 | 目标服务器 | 进入维护模式并开始一小时计时；核验身份、目录、磁盘、备份及现有进程 | `hostname`、`readlink -f`、Supervisor status；记录维护开始时间、PID、完整命令和 CWD | 生产待核实 | 对外处于维护状态；不满足前置条件即取消发布 |
+| 2 | PHP `update_depth_price` | 核实后停止旧极端行情命令 | 仅在 PID、完整命令和 CWD 与台账相符后执行 `supervisorctl stop depth_update:*`，并复查状态 | 旧命令运行 | 已停止且不会被 Supervisor 自动拉起；旧代码和表保留作回滚 |
+| 3 | backend-api、frontend-web、Go | 上传 Go 源码并在服务器构建 binary，但暂不启动 Go | 后端逐文件覆盖；前端把唯一一次构建的 `dist/web` 及哈希清单先发布到 `public/nweweb/`，暂不改 `public/web/`；Go 上传本次提交源码及成对的 `go.mod`/`go.sum`，在服务器执行 `./collector.sh build-market-change`，再准备环境文件、日志目录和唯一 Supervisor 配置；不得上传本机 binary，也不得在 shell 直接执行服务器 binary，详见 `GO-20260813-EXTREME-REDIS-V1` | 维护中；旧 PHP 已停 | 服务器构建产物、配置和回滚备份齐全；尚未执行新 Go 配置的 `supervisorctl update` |
+| 4 | backend-api | 将 `MARKET_CHANGE_SOURCE` 直接配置为 `redis` 并刷新配置缓存 | 在 `/www/wwwroot/bishujucoin.com` 安全修改服务器配置，执行 `php artisan config:clear`，并按现网策略执行 `config:cache`；不得输出真实值 | API 配置快照已备份 | API 指向 Redis；Go 未 ready 时出现 503 属维护窗口内预期状态 |
+| 5 | Supervisor | 满足启动门槛后通过 Supervisor 启动唯一 Go 极端行情进程 | 模板为 `autostart=true`，因此 `supervisorctl update` 本身会启动进程；只有确认旧 PHP 已停、binary 哈希及可执行权限正确、环境文件就绪、日志目录存在且可写后，才执行 `supervisorctl reread` 和 `supervisorctl update`，成功后只核对 status/PID，不重复执行 `start` | Go 未运行，全部门槛已留证 | 同一 Redis prefix 仅一个经过身份核实的 PID |
+| 6 | Go 极端行情服务 | 在维护模式内等待内存连续积累完整 5 分钟价格窗口 | 检查 `current_generation`、meta、`warmup_complete`、generation 年龄及 Go 健康日志 | 窗口未完整，API 可返回 503 | 约 5 分钟后 `warmup_complete=true` 且 generation 新鲜、完整；这是算法窗口，不是额外缓存步骤 |
+| 7 | backend-api、frontend-web | 在 `public/nweweb/` 完成 API、配置页和已登录浏览器验收，再切正式前端 | 验证涨跌榜、分页筛选、屏蔽、失败清榜、日志及 MySQL 无高频 UPDATE；验收通过后将哈希清单覆盖的同一产物字节原子切换到 `public/web/`，复算 `web` 哈希并与已验收的 `nweweb` 和清单三方一致，禁止重建 | Go ready，仍在维护；`public/web/` 保持原版本 | 核心场景通过且正式目录哈希一致；任何失败恢复对应目录备份并回滚，不开放流量 |
+| 8 | 所有组件 | 开放维护并在一小时窗口剩余时间持续观察 | 记录维护结束时间、Supervisor、Go health、Laravel 日志、Redis meta、HTTP、MySQL 写审计与浏览器证据 | 验收通过 | 对外恢复；一个 Go 发布者，API/页面正常，只允许新规则首次身份 INSERT |
+
+五分钟等待是计算 `market_change.period=5` 所需的真实价格历史长度，不能通过配置、重启或跳过检查来消除。本次明确不同时运行旧 PHP 与新 Go。任何进程操作前先核实真实身份，不能仅按进程名或端口批量终止。
+
+#### 前端与 API 兼容基线
+
+以下契约是第一阶段无感切换的发布门槛。
+
+##### `GET /market/change/list`
+
+- 保持 `X-Token` 登录验证和原接口路径。
+- 继续接受：`direction`、`page`、`page_size`、`symbol`、`platform[]`、`change`、`block_id_temp[]`。
+- `direction=1` 仅返回上涨，`direction=2` 仅返回下跌。
+- `platform[]` 是排除平台；`change` 是严格大于阈值；`symbol` 为大小写不敏感模糊搜索。
+- 永久屏蔽、用户全局屏蔽平台和临时屏蔽必须在计算 `total` 与分页前应用。
+- 响应外层保持 `type=ok`、`code=200`、`message=success`，`data` 保持分页对象。
+- 分页对象至少包含 `current_page`、`data`、`from`、`last_page`、`per_page`、`total`；空结果必须是 `data: []`，不能是 `null`。
+- 每行至少继续提供：`id`、`match_id`、`symbol`、`currency_name`、`quote_name`、`platform`、`platform_text`、`period`、`direction`、`change`、`price_begin`、`price_end`、`updated_at`。若现网数据包含 `margin_status`，也必须保持；列表页临时开关所需的 `block_status` 可由 API 明确返回 `false`，但不能误标为永久屏蔽。
+- `direction` 保持数字 `1/2`；`change` 保持不带百分号的绝对正数；`updated_at` 保持 `YYYY-MM-DD HH:mm:ss`。
+- `id` 必须是现有或首次触发 INSERT 得到的 `market_change.id`，跨 Go 重启、Redis 清空和方向切换保持稳定，并继续供单条、批量和临时屏蔽使用。
+- 默认按 `change` 降序，同涨跌幅时使用稳定次级排序，避免轮询时页面行顺序无故抖动。
+
+##### `GET /quotation/change/config`
+
+- 保持分页外层和页面所需字段：`id`、`symbol`、`currency_name`、`quote_name`、`platform`、`platform_text`、`block_status`。
+- 配置页继续从现有 `market_change` 身份记录读取，保持旧页面语义：新品种第一次真实异动并取得原生 ID 后才进入配置页。不能为提前展示未触发规则而批量制造 `market_change` 空记录。
+- 继续接受 `page`、`page_size`、`symbol`、`platform`、`status`。
+- `status` 应明确实现为：空或 `0` 全部、`1` 已禁用、`2` 未禁用。
+
+##### 用户屏蔽接口
+
+- 保持 `POST /user/change/block_id` 的单条切换语义。
+- 保持 `POST /user/change/block_id/batch` 的现有语义：`is_delete=false` 为新增屏蔽，`is_delete=true` 为解除屏蔽。
+- 保留父账号向子账号同步的既有业务规则。
+- 接口失败时不得只改变前端本地状态而未持久化。
+
+#### 实施后验收清单
+
+##### A. Go 计算与 Redis 发布
+
+- [ ] 同一配置项读取的是 Redis DB 3 的卖盘 key，并使用有效卖一价格；零值、负值、空数组、NaN、Inf、解析失败和过期盘口不得生成异动。
+- [ ] `100 -> 104` 的五分钟窗口生成上涨 `direction=1`、`change=4`、`price_begin=100`、`price_end=104`。
+- [ ] `100 -> 96` 的五分钟窗口生成下跌 `direction=2`、`change=4`、`price_begin=100`、`price_end=96`。
+- [ ] `abs(change)<1` 时从榜单移除；恰好 `1%` 的底层入榜边界与旧规则一致。
+- [ ] 上涨转下跌时只存在于最新方向榜，不能同时出现在两个榜单。
+- [ ] 行情恢复、配置禁用或盘口过期后，旧详情和旧榜单成员按设计清理，不依赖 API 的两分钟 SQL 条件掩盖脏数据。
+- [ ] Go 冷启动在五分钟历史未满足前不产生伪五分钟结果；维护模式保持到完整算法窗口满足且 `warmup_complete=true`。
+- [ ] `market_depth` 热加载后新增规则自动开始积累自己的 5 分钟窗口；规则第一次真实触发时只 INSERT 一条 `market_change`，以后循环不 UPDATE；MySQL 暂时不可用时采用已确认的保守策略并记录健康状态。
+- [ ] Redis 发布使用完整代际或等价原子机制，API 不会读到榜单与详情不一致的半成品。
+- [ ] 在一小时维护窗口剩余时间持续记录计算周期 p50/p95、任务数、有效结果数、内存、CPU、Redis 错误和 Go 错误；结果满足发布前确认的性能门槛。
+- [ ] Go 重启后从 `market_change` 复用同一原生 ID，旧代际按 TTL 清理且不会无限累积。
+
+##### B. API 契约与过滤
+
+- [ ] 使用契约固定样本比较切换前后的 HTTP 状态、外层结构、分页字段、行字段和字段类型。
+- [ ] 上涨与下跌接口同时请求时各自只返回正确方向，均按涨跌幅降序稳定排列。
+- [ ] 空 Redis 榜单返回成功的空分页；Redis 连接失败返回明确错误并告警，不能伪装成“当前没有极端行情”。
+- [ ] `page`、`page_size` 的边界页和超出范围页正常，`total` 为全部过滤条件应用后的真实数量。
+- [ ] 币种搜索大小写不敏感；平台复选项及用户全局平台屏蔽均执行排除语义。
+- [ ] 页面阈值 `1/3/5/10/15/20/50` 维持严格大于语义；临时屏蔽 ID 在分页前生效。
+- [ ] 最近两分钟的新鲜度或等价 Redis TTL 规则生效，超过上限的异常涨跌幅不返回。
+- [ ] 50 行默认分页在生产等量 Redis 数据上记录 API p50/p95、吞吐和错误率，并满足发布前确认的接口门槛及前端 5 秒超时。
+
+##### C. 配置与屏蔽
+
+- [ ] 配置页继续显示已有 `market_change` 身份记录；新品种第一次真实异动后自动出现，未触发前不预建记录。
+- [ ] 币种、平台及状态筛选结果与分页总数一致。
+- [ ] 单条隐藏后立即从极端行情列表消失，并在配置页显示为禁用；再次切换可恢复。
+- [ ] 批量禁用/启用语义正确，父子账号同步结果与旧功能一致。
+- [ ] 现有 `market_change_user_filter.change_id` 完全不迁移；旧屏蔽继续引用原 ID，新触发项使用新 INSERT 得到的原生 ID。
+
+##### D. 已登录浏览器验收
+
+- [ ] 按 `frontend-web/docs/release-checklist.md` 备份并记录现有 `public/nweweb/`、`public/web/` 哈希；`web89/` 和 `nweweb89/` 全程不变。
+- [ ] 唯一一次 Node 14 构建的 `dist/web` 先发布到 `public/nweweb/`；以下浏览器场景先在 `nweweb` 完整验收。
+- [ ] 使用真实已登录账号打开“极端行情”，左侧仅上涨、右侧仅下跌。
+- [ ] 搜索、阈值、平台排除、分页、每页条数和 1/3/5/10/15/30 秒自动刷新正常。
+- [ ] 快速连续刷新时旧响应不会覆盖新响应，离开页面后定时器停止。
+- [ ] 临时隐藏仅影响当前页面状态；永久隐藏在刷新、重新登录和换页后仍生效。
+- [ ] 平台名称、保证金标记、历史价、实时价、更新时间及平台交易链接显示正确。
+- [ ] “极端行情配置”的单条和批量开关可用，接口失败时页面状态不会假成功。
+- [ ] 桌面双栏及移动端单列布局可操作，浏览器控制台无新增 error/warn。
+- [ ] `nweweb` 验收通过后，把哈希清单覆盖的同一产物字节原子切换到 `public/web/`；不得重新构建，且 `web`、`nweweb` 与构建清单的逐文件哈希完全一致。
+
+##### E. 切换、停旧链路与回归
+
+- [ ] 进入维护模式后先停止旧 PHP，确认没有新旧链路同时运行；本次不执行双链路结果对照。
+- [ ] API 切到 Redis 后前端无需修改接口地址、认证方式或响应解析代码。
+- [ ] Go 启动前 PHP `update_depth_price` 已停止，并确认 Supervisor 不会自动重启它；回滚时才恢复。
+- [ ] 停止旧命令后确认 `market_depth.price/number` 与既有 `market_change` 不再被该链路 UPDATE；新规则首次真实触发仍可有且仅有一次身份 INSERT，Redis 榜单继续正常刷新。
+- [ ] 行情对比 `quotation/diff`、登录、用户配置和其他共享 Redis/MySQL 功能完成基本回归，独立命名空间没有覆盖现有 `v2:*` 键。
+- [ ] 关闭并确认退出本次验收启动的所有临时服务、测试进程和观察脚本。
+
+#### 回滚
+
+- 触发条件：API 契约不兼容、Redis 榜单停止更新或出现半成品、计算结果显著偏离对照、用户屏蔽丢失、错误率或资源占用超过确认门槛。
+- 代码/文件：恢复部署前逐文件备份或上一个已验证提交，核对文件哈希；不得在生产目录直接执行破坏性 Git 重置。
+- SQL：本期无结构迁移、无 backfill、无 `market_change_user_filter` 改写，因此没有 migration 回滚。运行期间首次异动产生的 `market_change` 身份行保留，不执行反向删除，避免破坏可能已经建立的用户屏蔽引用。
+- 环境变量：恢复部署前安全快照并刷新 Laravel 配置缓存；不得在台账或命令输出中打印真实值。
+- 进程和数据源：先核实 Supervisor 项、PID、完整命令和 CWD，执行 `supervisorctl stop 'market_change_to_redis_v2:*'` 并确认退出；再由标准服务单元恢复旧 PHP `update_depth_price`，确认旧 MySQL 结果持续刷新；最后将 `MARKET_CHANGE_SOURCE` 恢复为 `mysql`、刷新 Laravel 配置缓存并验证 HTTP/页面。全过程保持维护模式，不同时运行新旧链路。
+- Redis/缓存：切回时不立即删除新命名空间；先停止新生产者并保留有限时间用于取证，确认无消费者后再按精确前缀清理。
+- 回滚后验证：重新执行列表、配置、单条/批量屏蔽和已登录浏览器核心场景，记录回滚提交、服务状态和证据。
+
+#### 结果与补充
+
+- 最终状态：待部署，已确认采用一小时维护窗口直接切换；尚未在服务器实施。
+- 真实 `tool` 数据库未执行 migration、backfill 或任何写入；服务器环境变量、进程和 Redis 数据源均未改动。本期设计本身不包含数据库结构迁移或 filter 迁移。
+- 先前围绕独立配置表、回填和高位 ID 的隔离库演练已废弃，不能作为当前“首次真实异动 INSERT 原生 ID”实现的发布证据。
+- 后端按当前原生 `market_change.id` 架构重新执行 PHP 7.2 lint 和定向测试，`14 tests / 45 assertions` 通过；生产数据库与真实 Redis 联调仍待验证。
+- Go 冻结实现的单元测试、race、vet、目标 binary 构建、`bash -n collector.sh` 与 `git diff --check` 通过，coverage `62.7%`；Apple M1 Pro 的 10k 规则内存 benchmark 为 `5,409,981 ns/op`、`9,022,363 B/op`、`30,012 allocs/op`。生产 MySQL 首次 INSERT 与无 UPDATE 审计仍待维护窗口验收。
+- 本地只读数据库核对使用与 Go loader 完全相同的 SQL：规则 `14,648`，已有 `market_change.id` 的 `10,685`，无 ID 的 `3,963`，去重 `market_depth.id` 仍为 `14,648`；现有唯一索引确认为 `(symbol, platform, period)`，symbol 最大 `21` 字符且超过 `30` 字符为 `0` 条。该核对未写库。
+- 前端：极端行情不可用状态 Jest `6/6`、定向 ESLint 通过。生产构建在本机 Node 22 先被 Webpack 4 OpenSSL 限制、兼容参数重试后被 `node-sass@4.14.1` 的 arm64/Node 22 ABI 限制阻断；按项目既有发布基线必须在 Node `14.21.3` 环境重新构建并记录包/文件树哈希。Docker 当前未运行，因此本次没有启动容器或常驻服务。
+- 当前没有本项目已运行且已登录的页面，故未执行浏览器联调。真实 Go+Redis+HTTP 联调、完整 5 分钟算法窗口、已登录浏览器验收和维护窗口内的资源观察必须在开放流量前完成；本次不做双链路结果对照。
+- 候选提交 SHA、生产主机、Supervisor include 绝对路径、前端产物哈希、性能门槛和负责人必须在实际进入维护并执行部署前补齐。

@@ -13,10 +13,16 @@ use App\Model\MarketDepthDiff;
 use App\Service\RedisService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use App\Model\Users;
+use App\Exceptions\MarketChangeRedisUnavailableException;
+use App\Services\MarketChangeDataSource;
+use App\Services\MarketChangeSymbolNormalizer;
 
 class QuotationController extends Controller
 {
+    private static $lastMarketChangeRedisErrorAt = 0;
+
     public function redisDepthData(Request $request)
     {
         $symbol = $request->get('symbol','BTCUSDT');
@@ -163,78 +169,41 @@ class QuotationController extends Controller
         return successReturn(['buy' => $kline,'sell' => $sell_kline]);
     }
 
-    public function changeList(Request $request){
+    public function changeList(Request $request, MarketChangeDataSource $dataSource){
         $user_id = $request->attributes->get('user_id');
         if(!$user_id){
             return errorReturn('请重新登录',50008);
         }
-        $page     = $request->get('page') ?? 1;
-        $direction=$request->get('direction');
-        $pageSize = $request->get('page_size') ?? 50;
-        $platform = $request->get('platform')??[];
-        $symbol = $request->get('symbol');
-        $change = $request->get('change');
-        $block_id_temp=(array) $request->get('block_id_temp', []);
-        // $block_symbol_temp = (array) $request->get('block_symbol_temp', []);
-        // $platform_temp = (array) $request->get('platform_temp', []);
-        $date = date('Y-m-d H:i:s',strtotime('-2 min'));
-         
-        $list = MarketChange::join('currency_match','currency_match.id','=','match_id')
-            ->where('currency_match.is_enabled',1)->whereBetween('change', [0, 2000])  // 包含0和2000
-->where('updated_at','>',$date)
-            ->whereNotExists(function($query) use($user_id){
-                $query->select(DB::raw(1))
-                    ->from('market_change_user_filter')
-                    ->whereColumn('market_change_user_filter.change_id', 'market_change.id')
-                    ->where('market_change_user_filter.user_id',$user_id);
-            });
-            
-       
-        if($direction){
-            $list = $list->where('direction',$direction);
+        try {
+            return successReturn($dataSource->list($request, $user_id));
+        } catch (MarketChangeRedisUnavailableException $e) {
+            if ($this->shouldReportMarketChangeRedisError()) {
+                report($e);
+            }
+            return errorReturn('极端行情实时数据暂不可用，请稍后重试', 50301, 503);
+        } catch (\InvalidArgumentException $e) {
+            return errorReturn($e->getMessage(), 422, 422);
         }
-        if($symbol){
-            $list = $list->where('market_change.symbol', 'like', '%' . strtoupper($symbol) . '%');
-        }
-        // $platform      = !empty($request->get('platform')) ? array_map('intval', (array)$request->get('platform')) : [];
-        $user = Users::find($user_id);
-        if ($user && $user->block_platform) {
-    // 🚀 核心修复：用 array_map 将 explode 出来的字符串数组转为纯 int 数组
-            $db_block_platforms = array_map('intval', explode(',', $user->block_platform));
-            
-            $platform = array_merge($platform, $db_block_platforms);
-            $platform = array_unique($platform);
-        }
-        if($platform){
-            $list = $list->whereNotIn('market_change.platform',$platform);
-        }
-        if($change>0){
-            $list = $list->where('change','>',$change);
-        }
-        if($block_id_temp){
-            $list->whereNotIn('market_change.id',$block_id_temp);
-        }
-        // if($block_symbol_temp){
-        //     $list->where(function($query) use ($block_symbol_temp,$platform_temp) {
-                
-        //         $query->whereNotIn('market_change.symbol', $block_symbol_temp)
-        //               ->orWhereNotIn('market_change.platform', $platform_temp);
-                 
-        //     });
-        // }
-        $list = $list->orderBy('change','desc')
-            ->select(['market_change.*','currency_match.currency_name','currency_match.quote_name'])
-            ->paginate($pageSize, ['*'], 'page', $page);
-        $item = $list->getCollection();
-       
-        $item->each(function($i)use($user_id){
-            $i->symbol = $i->currency_name.'/'.$i->quote_name;
-            $i->append(['platform_text']);
-            return $i;
-        });
-        $list->setCollection($item);
-        return successReturn($list);
+    }
 
+    private function shouldReportMarketChangeRedisError()
+    {
+        $interval = max(1, (int) config('market_change.error_log_interval_seconds', 10));
+        try {
+            // Use the file store explicitly so a Redis outage cannot disable
+            // the throttle that protects the application log.
+            return Cache::store('file')->add(
+                'market_change:redis_unavailable:report_lock',
+                time(),
+                $interval
+            );
+        } catch (\Throwable $e) {
+            if ((time() - self::$lastMarketChangeRedisErrorAt) < $interval) {
+                return false;
+            }
+            self::$lastMarketChangeRedisErrorAt = time();
+            return true;
+        }
     }
 
 
@@ -310,25 +279,46 @@ class QuotationController extends Controller
             return errorReturn('请重新登录',50008);
         }
         $user_data=DB::table('users')->where('id',$user_id)->first();
-        $user_block = DB::table('market_change_user_filter')->where('user_id',$user_id)->pluck('change_id')->toArray();
 
-        $list = MarketChange::join('currency_match','currency_match.id','=','match_id')
+        $list = MarketChange::join('currency_match','currency_match.id','=','market_change.match_id')
             ->where('currency_match.is_enabled',1);
         if($symbol){
-            $list = $list->where('market_change.symbol', 'like', '%' . strtoupper($symbol) . '%');
+            $list = $list->where(
+                'market_change.symbol',
+                'like',
+                '%' . MarketChangeSymbolNormalizer::upper($symbol) . '%'
+            );
         }
-         if($user_data->block_platform){
-             $list = $list->where(function ($query) use ($user_data){
-                return $query->where('platform', '!=', $user_data->block_platform);
-            });
+        if($user_data && $user_data->block_platform){
+            $blockedPlatforms = array_values(array_filter(array_map('intval', explode(',', $user_data->block_platform))));
+            if ($blockedPlatforms) {
+                $list->whereNotIn('market_change.platform', $blockedPlatforms);
+            }
         }
         if($platform){
-            $list = $list->where(function ($query) use ($platform){
-                return $query->where('platform',$platform);
+            $list->where('market_change.platform', (int) $platform);
+        }
+        $status = $request->get('status');
+        if ((string) $status === '1') {
+            $list->whereExists(function ($query) use ($user_id) {
+                $query->select(DB::raw(1))->from('market_change_user_filter')
+                    ->whereColumn('market_change_user_filter.change_id', 'market_change.id')
+                    ->where('market_change_user_filter.user_id', $user_id);
+            });
+        } elseif ((string) $status === '2') {
+            $list->whereNotExists(function ($query) use ($user_id) {
+                $query->select(DB::raw(1))->from('market_change_user_filter')
+                    ->whereColumn('market_change_user_filter.change_id', 'market_change.id')
+                    ->where('market_change_user_filter.user_id', $user_id);
             });
         }
         $list = $list
-            ->select(['market_change.*','currency_match.currency_name','currency_match.quote_name'])
+            ->orderBy('market_change.id')
+            ->select([
+                'market_change.*',
+                'currency_match.currency_name',
+                'currency_match.quote_name'
+            ])
             ->paginate($pageSize, ['*'], 'page', $page);
         $item = $list->getCollection();
         $change_ids = array_column($item->toArray(),'id');
@@ -337,7 +327,7 @@ class QuotationController extends Controller
         foreach($user_block_list as $it){
             $user_block_arr[$it->change_id] = $it;
         }
-        $item->each(function($i)use($user_block,$user_block_arr){
+        $item->each(function($i)use($user_block_arr){
             $i->append(['platform_text']);
             if(array_key_exists($i->id,$user_block_arr)){
                 $i->block_status =true;
