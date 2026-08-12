@@ -61,7 +61,7 @@ TASKS=(
     "KUCOIN|$PHP_BIN $ARTISAN update_Kucoin_Symbol"
     "BITGET|$PHP_BIN $ARTISAN update_bitget_symbol"
     "BYBIT|$PHP_BIN $ARTISAN update_bybit_symbol"
-    "BITMART|$PHP_BIN $ARTISAN update_bitmart_symbol"
+    # "BITMART|$PHP_BIN $ARTISAN update_bitmart_symbol"
     "NONKYC|$PHP_BIN $ARTISAN update_Nonkyc_Symbol"
     "WEEX|$PHP_BIN $ARTISAN update_weex_symbol"
     "XT|$PHP_BIN $ARTISAN update_xt_symbol"

@@ -53,7 +53,7 @@ class CurrencyQuotation extends Model
             // 14 => '币格',
             15 => 'BitGet',
             16 => 'ByBit',
-            17 => '币市',
+            // 17 => '币市',
             // 18 => 'NonKYC',
             19 => 'Weex',
             // 20 => '币赢',

@@ -66,7 +66,7 @@ TASKS=(
     "mexc|$PHP_BIN $ARTISAN update_mexc_withdraw"
     "kucoin|$PHP_BIN $ARTISAN update_kucoin_withdraw"
     "bitget|$PHP_BIN $ARTISAN update_bitget_withdraw"
-    "bitmart|$PHP_BIN $ARTISAN update_bitmart_withdraw"
+    # "bitmart|$PHP_BIN $ARTISAN update_bitmart_withdraw"
     "bybit|$PHP_BIN $ARTISAN update_bybit_withdraw"
     "nonkyc|$PHP_BIN $ARTISAN update_nonkyc_withdraw"
     "weex|$PHP_BIN $ARTISAN update_weex_withdraw"
