@@ -102,6 +102,54 @@
 
 ## 4. 部署记录
 
+### 2026-08-13 / CM-20260813-EXTREME-MIDPRICE-V2 / 极端行情双边中间价确认
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 待部署（生产尚未部署） |
+| 计划日期与窗口 | 2026-08-13，一小时维护窗口内完成；实际起止时间现场记录，Asia/Shanghai |
+| 变更目标 | 极端行情改用买一/卖一中间价，加入方向侧确认、2% 点差保护和连续 3 个逐秒样本确认，过滤单边异常报价 |
+| cryptomonitor 变更前基线 | `a5f68aa4336c92f721c3be6b99d682f172a08134`（本次修改前已提交并推送状态待主任务最终核实） |
+| cryptomonitor 契约文档提交 | `595f8e6d6eaecb989cacd7d791651d1f6fb2f4ab`；本次无 backend/frontend 运行代码变更 |
+| go_project 变更前基线 | `eb75e3ddf7609f112dccf21a26f792f92ee9e07a` |
+| go_project 候选提交 | `1f2c9bcbf8159e5622abf3706a2f35640cb791cb`；按用户要求只本地提交、不推送 |
+| 服务器目标 | Go `/www/wwwroot/go_project/exchange_hub`；现有 backend-api `/www/wwwroot/bishujucoin.com` 与前端目录不覆盖运行文件 |
+| 实施/部署/验证/回滚负责人 | 现场记录 |
+
+#### 范围与契约
+
+- 运行代码只涉及 Go `market_change_to_redis_v2`。每轮读取同一 `symbol + platform` 的买盘 `_1` 和卖盘 `_2` 五档，自行取 `max(bids)` 和 `min(asks)`，中间价为两者平均；当前和五分钟前点差均受默认 2% 上限保护。
+- 上涨要求中间价与买一达到阈值且卖一同向；下跌要求中间价与卖一达到阈值且买一同向；默认 `t0/t1/t2` 三个连续逐秒样本后在第三帧上榜，同秒不重复计数，间隔超过 1 秒重置。
+- 已上榜行情满足反方向条件后，旧方向立即撤榜，新方向完成同样连续确认后才发布，不允许同时存在于两个榜单；换向后沿用同一事件的 `created_at`。
+- Redis generation schema、HTTP 路径、查询参数、分页结构和行字段均不变。`change/price_begin/price_end` 继续是相同标量类型，只改为中间价语义，因此 backend-api、frontend-web 和 PHP Tool 无运行代码需要上传或发布。
+- 无数据库结构和配置表变更，无 migration/backfill；新品种仍由既有流程插入 `market_depth`，首次真实触发才 INSERT 一条 `market_change` 身份记录，后续不 UPDATE。
+- DB3 MGET Key 数预计约翻倍；行情环形槽由单价的约 16 字节扩为买一/卖一的约 24 字节，槽本体约增加 50%，进程预算先由至少 200 MB 提到至少 300 MB。维护窗口必须记录实际 KeyDB ops/延迟、Go heap/GC、CPU 和循环 p95。
+
+#### 需上传文件
+
+cryptomonitor 仓库只有 `README.md` 与本台账更新，属于 Git 文档，不覆盖生产运行目录。生产上传清单、逐文件 SHA-256、服务器构建、环境变量、Supervisor 重启、验证和回滚全部以关联 Go 台账 `GO-20260813-EXTREME-MIDPRICE-V2` 为准。本次明确不上传 backend-api、frontend-web、Tool PHP/Python、Supervisor 配置或前端 `dist`。
+
+#### SQL 与环境变量
+
+- SQL、migration、backfill、索引、数据修复：无。
+- backend-api 和 frontend-web 环境变量：无。
+- Go 现有服务器 `.env` 增加/确认 `MARKET_CHANGE_MAX_SPREAD_PERCENT=2`、`MARKET_CHANGE_CONFIRM_SECONDS=3`；不得用 `.env.example` 覆盖真实连接配置。
+- 默认连续确认大于 1 个样本，因此 `MARKET_CHANGE_POLL_INTERVAL_MS` 必须小于或等于 `1000`；不满足时 Go 在启动期拒绝配置。
+
+#### 发布与回滚摘要
+
+1. 先完成 Go 定向测试、race、vet、benchmark 和服务器 Linux 临时 binary 构建；任何失败都不重启生产进程。
+2. 保留旧 binary 与 `.env` 快照，通过既有 Supervisor 项重启唯一 Go 发布者，不在 shell 直接运行，也不改 backend-api 数据源。
+3. 等待完整 5 分钟内存窗口；确认无序五档、买卖任一侧缺失、交叉盘、当前/历史点差超限、单边跳价，以及 `t0/t1/t2` 第三帧确认、同秒不累加和 gap 重置边界均符合预期，再验收原页面/API/用户屏蔽。
+4. 回滚只恢复 Go binary、源码和两项环境参数；不回滚 API/前端，不执行 SQL，不清 Redis，全程禁止两个版本并写同一 prefix。
+
+#### 结果与补充
+
+- 最终工作树已冻结并完成本地 focused/race/vet/build、全量 Go 测试、顺序 benchmark 与双仓 diff-check；生产未改动。Go V2 台账已登记逐文件 SHA-256；候选提交、服务器 PID/资源基线和生产验证证据待补齐。
+- 本记录覆盖本次算法增量；旧 `CM-20260813-EXTREME-REDIS-V1` 中“只读卖一”的描述不再代表本次候选版本。
+
 ### 2026-08-13 / CM-20260813-BITMART-DISABLE / BitMart 下架并停止生产订阅
 
 #### 基本信息
@@ -156,6 +204,8 @@
 - 服务器进程停止、Supervisor 重载和 Redis DB3 TTL 清理仍待生产验证。
 
 ### 2026-08-13 / CM-20260813-EXTREME-REDIS-V1 / 极端行情 Go 内存计算与 Redis 榜单
+
+> 当前上传覆盖说明：本记录保留 V1 历史候选事实；本次中间价版本已由 `CM-20260813-EXTREME-MIDPRICE-V2` 及关联 Go V2 台账覆盖。不得使用本记录中的旧 Go 文件说明、哈希或首次安装流程执行本次上传与重启。
 
 #### 基本信息
 
