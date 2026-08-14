@@ -35,6 +35,7 @@ class PermissionApiTest extends TestCase
                 'status' => 1,
                 'expired_at' => '2026-12-31 23:59:59',
                 'is_admin' => 1,
+                'remark' => null,
             ],
             [
                 'id' => self::MANAGER_USER_ID,
@@ -43,6 +44,7 @@ class PermissionApiTest extends TestCase
                 'status' => 1,
                 'expired_at' => '2026-11-30 23:59:59',
                 'is_admin' => 0,
+                'remark' => null,
             ],
             [
                 'id' => self::LEGACY_ADMIN_USER_ID,
@@ -51,6 +53,7 @@ class PermissionApiTest extends TestCase
                 'status' => 1,
                 'expired_at' => null,
                 'is_admin' => 1,
+                'remark' => null,
             ],
             [
                 'id' => self::TARGET_USER_ID,
@@ -77,6 +80,7 @@ class PermissionApiTest extends TestCase
                 'status' => 1,
                 'expired_at' => null,
                 'is_admin' => 0,
+                'remark' => null,
             ],
         ]);
 

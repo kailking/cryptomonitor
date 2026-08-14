@@ -32,10 +32,12 @@ class PermissionServiceTest extends TestCase
         $this->insertGrant(31, 'permissions.manage');
     }
 
-    public function test_catalog_is_the_exact_approved_fourteen_permission_contract(): void
+    public function test_catalog_is_the_exact_approved_sixteen_permission_contract(): void
     {
         $expected = [
             'quotation.profit.view' => ['查看主表盈亏', 'quotation', 'display', [], false],
+            'quotation.extreme.view' => ['查看极端行情', 'quotation', 'page', [], true],
+            'quotation.extreme.config' => ['管理极端行情配置', 'quotation', 'page', ['quotation.extreme.view'], true],
             'users.view' => ['查看用户', 'users', 'page', [], true],
             'users.create' => ['创建用户', 'users', 'action', ['users.view'], true],
             'users.edit' => ['编辑用户', 'users', 'action', ['users.view'], true],

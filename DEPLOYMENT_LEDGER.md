@@ -102,6 +102,62 @@
 
 ## 4. 部署记录
 
+### 2026-08-14 / CM-20260814-EXTREME-PERMISSIONS-REMARKS / 极端行情权限与用户备注
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 已部署 |
+| 计划日期与窗口 | 2026-08-14 低使用窗口，Asia/Shanghai |
+| 实际开始/结束时间 | 2026-08-14 18:21 / 18:51，Asia/Shanghai |
+| 环境 | 本机 Docker 隔离回归、生产 |
+| 变更目标 | 将“极端行情”与“极端行情配置”纳入细粒度用户权限，并在权限用户列表显示现有备注 |
+| cryptomonitor 业务提交 | `41f09584b6a68268fd992e7b1f4076c9c136f476` |
+| go_project 提交 | 无 |
+| 服务器目标 | 生产 `/www/wwwroot/bishujucoin.com`；正式前端 `/www/wwwroot/bishujucoin.com/public/web` |
+| 实施/部署/验证负责人 | Codex |
+| 回滚负责人 | 用户 |
+
+#### 发布范围与校验
+
+| 类别 | 相对路径/产物 | SHA-256/标识 | 结果 |
+|---|---|---|---|
+| 后端 | `backend-api/app/Http/Controllers/Api/PermissionController.php` | `6e3baed25e812ef599e944404902b0d6973e4b039d10997fa4040f618d1b20b8` | 已替换并复核 |
+| 后端 | `backend-api/config/permissions.php` | `6e2af6554213601ab4eefcec6169135b8aa54e3f92fb786b380ef369e4036896` | 已替换并复核 |
+| 后端 | `backend-api/routes/api.php` | `47f90446296af87460e358cb247a1e6aaed1c999352a088d2fe8c2736f5c3441` | 已替换并复核 |
+| 前端 | Node `14.21.3` 单次 `dist/web` 构建，64 文件 | 规范化文件树 `78b9998b3e28b2810f2014f68e15d7b9b3ab42f189d0425706e52f55b79425c8` | 已原子切换 |
+| 发布包 | `extreme-permissions-remarks.tar.gz` | `995e05774bbf0cce93002e1657e757efc7fc97b2a772b3e3a63196084298c8be` | 上传前后一致 |
+
+#### 数据、配置与进程边界
+
+- SQL、migration、backfill、数据库写入：无；生产已存在 `users.remark` 与权限表。
+- 环境变量、Nginx、FRP、Supervisor 与业务进程操作：无。
+- 部署后执行 Laravel `route:clear` 与 `config:clear`。
+- 两项新权限未写入任何用户 grant，生产实测计数为 `0`，符合默认关闭。
+
+#### 验证
+
+- 本机 Docker PHP `7.3` + MySQL `8.0.24` + Redis `5.0`：`238 tests / 1400 assertions` 全部通过，耗时 9.21 分钟。
+- 修改的 PHP 运行文件与测试文件 `php -l` 全部通过；测试容器、网络与临时卷已清理。
+- 前端 ESLint、29 个套件/257 项单测及生产构建通过；构建仅有既有包体积警告。
+- 外部 `GET /web/`、`build-meta.json` 及新 `app.js` 均返回 HTTP 200；未登录访问三个受保护 API 均返回既有 `50008` 重新登录契约，无 HTTP 500。
+- 生产运行时权限目录为 16 项，配置权限依赖查看权限；部署窗口无新增 ERROR/CRITICAL 日志。
+- 已登录角色菜单、备注列和管理员授权交互仍由用户进行最终业务验收。
+
+#### 回滚
+
+- 生产回滚目录：`/www/backup/extreme-permissions-remarks-20260814-184724`，权限 `0700`。
+- 后端恢复：校验 `SHA256SUMS` 后将 `backend-before.tar.gz` 按原所有者、模式、ACL 与 xattr 恢复到应用根目录，随后清理路由与配置缓存。
+- 前端恢复：将当前 `public/web` 移出，再将回滚目录中的 `web-live-before-atomic` 原子移回 `public/web`；`web-before.tar.gz` 作为第二份可校验备份。
+- 数据库、环境变量、进程与 Redis：无回滚操作。
+
+#### 结果与补充
+
+- 最终状态：生产已部署，服务器与外部 HTTP 基础验证通过，回滚包已再次校验。
+- 异常与处置：首轮 Docker 回归发现测试目录数仍为 14 及批量用户 fixture 列不一致；修正后第二轮全量通过，生产切换前已关闭所有测试门禁。
+- GitHub 推送：已获得明确授权，Docker 发现的两个测试修正与本台账随本次发布提交推送到 `origin/main`，不创建其他远程分支。
+
 ### 2026-08-13 / CM-20260813-EXTREME-MIDPRICE-V2 / 极端行情双边中间价确认
 
 #### 基本信息
