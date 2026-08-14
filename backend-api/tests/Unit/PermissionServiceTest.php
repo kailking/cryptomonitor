@@ -198,6 +198,26 @@ class PermissionServiceTest extends TestCase
         $this->assertSame([], $normalized);
     }
 
+    public function test_extreme_config_permission_adds_view_and_is_removed_with_view(): void
+    {
+        $granted = $this->service()->normalizeRequestedPermissions(
+            [],
+            ['quotation.extreme.config']
+        );
+
+        $this->assertSame(
+            ['quotation.extreme.config', 'quotation.extreme.view'],
+            $granted
+        );
+
+        $revoked = $this->service()->normalizeRequestedPermissions(
+            $granted,
+            ['quotation.extreme.config']
+        );
+
+        $this->assertSame([], $revoked);
+    }
+
     public function test_dependency_addition_is_recursive_and_cycle_safe(): void
     {
         $catalog = config('permissions.catalog');

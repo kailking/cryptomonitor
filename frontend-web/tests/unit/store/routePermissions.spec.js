@@ -82,11 +82,19 @@ function loadRegisteredGuard({ dispatch, permissionRoutes = [], token = 'token' 
 
 describe('permission route filtering', () => {
   test('maps each existing async child route to its exact permission', () => {
+    const quotationRoute = findRoute(asyncRoutes, '/quotation')
     const userRoute = findRoute(asyncRoutes, '/user')
     const settingRoute = findRoute(asyncRoutes, '/setting')
 
+    expect(quotationRoute.meta.permissions).toBeUndefined()
     expect(userRoute.meta.permissions).toBeUndefined()
     expect(settingRoute.meta.permissions).toBeUndefined()
+    expect(findRoute(quotationRoute.children, 'change').meta.permissions).toEqual([
+      'quotation.extreme.view'
+    ])
+    expect(
+      findRoute(quotationRoute.children, 'change/config').meta.permissions
+    ).toEqual(['quotation.extreme.config'])
     expect(findRoute(userRoute.children, 'user_list').meta.permissions).toEqual([
       'users.view'
     ])
@@ -116,12 +124,36 @@ describe('permission route filtering', () => {
 
   test('keeps constant routes public and exposes only children granted by permissions', async() => {
     const { routes, state } = await generateRoutes(['users.view'])
+    const quotationRoute = findRoute(routes, '/quotation')
     const userRoute = findRoute(routes, '/user')
 
     expect(state.routes.slice(0, constantRoutes.length)).toEqual(constantRoutes)
+    expect(quotationRoute.children.map(route => route.path)).toEqual([
+      'diff',
+      'diff_5',
+      'config'
+    ])
     expect(userRoute.children.map(route => route.path)).toEqual(['user_list'])
     expect(findRoute(routes, '/setting')).toBeUndefined()
     expect(findRoute(routes, '*')).toBeDefined()
+  })
+
+  test.each([
+    [[], ['diff', 'diff_5', 'config']],
+    [
+      ['quotation.extreme.view'],
+      ['diff', 'diff_5', 'config', 'change']
+    ],
+    [
+      ['quotation.extreme.view', 'quotation.extreme.config'],
+      ['diff', 'diff_5', 'config', 'change', 'change/config']
+    ]
+  ])('filters extreme quotation pages for grants %p', (grants, expectedPaths) => {
+    const routes = filterAsyncRoutes(asyncRoutes, grants)
+    const quotationRoute = findRoute(routes, '/quotation')
+
+    expect(quotationRoute.children.map(route => route.path)).toEqual(expectedPaths)
+    expect(quotationRoute.redirect).toBe('/quotation/diff')
   })
 
   test('settings market view grants its page but not the update operation', () => {
@@ -135,6 +167,11 @@ describe('permission route filtering', () => {
   test('admin roles cannot bypass an empty permission list', async() => {
     const { routes } = await generateRoutes([])
 
+    expect(findRoute(routes, '/quotation').children.map(route => route.path)).toEqual([
+      'diff',
+      'diff_5',
+      'config'
+    ])
     expect(findRoute(routes, '/user')).toBeUndefined()
     expect(findRoute(routes, '/setting')).toBeUndefined()
     expect(findRoute(routes, '*')).toBeDefined()

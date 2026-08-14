@@ -74,7 +74,7 @@ class PermissionController extends Controller
         $page = (int) $request->query('page', 1);
         $pageSize = (int) $request->query('page_size', 20);
         $query = Users::query()
-            ->select(['id', 'account', 'status', 'expired_at'])
+            ->select(['id', 'account', 'remark', 'status', 'expired_at'])
             ->withCount('permissionGrants');
 
         $account = $request->query('account');
@@ -91,6 +91,7 @@ class PermissionController extends Controller
             return [
                 'id' => (int) $user->id,
                 'account' => $user->account,
+                'remark' => $user->remark,
                 'status' => (int) $user->status,
                 'expired_at' => $user->expired_at,
                 'is_permission_root' => (int) $user->id === $rootId,

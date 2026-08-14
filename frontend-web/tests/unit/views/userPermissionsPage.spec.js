@@ -29,6 +29,20 @@ const catalog = [
         type: 'display',
         depends_on: [],
         sensitive: false
+      },
+      {
+        code: 'quotation.extreme.view',
+        name: '查看极端行情',
+        type: 'page',
+        depends_on: [],
+        sensitive: true
+      },
+      {
+        code: 'quotation.extreme.config',
+        name: '管理极端行情配置',
+        type: 'page',
+        depends_on: ['quotation.extreme.view'],
+        sensitive: true
       }
     ]
   },
@@ -410,6 +424,15 @@ describe('permission administration page authorization and loading', () => {
     expect(vm.users.data).toEqual([{ id: 2, account: 'new' }])
     expect(vm.logs.data).toEqual([{ id: 2 }])
   })
+
+  test('formats user remarks for a compact read-only column', () => {
+    const vm = context()
+
+    expect(vm.displayRemark('李先生测试账号')).toBe('李先生测试账号')
+    expect(vm.displayRemark('')).toBe('—')
+    expect(vm.displayRemark('   ')).toBe('—')
+    expect(vm.displayRemark(null)).toBe('—')
+  })
 })
 
 describe('selection, dependency closure, and root constraints', () => {
@@ -532,6 +555,21 @@ describe('selection, dependency closure, and root constraints', () => {
     vm.togglePermission('unknown.code', true)
     vm.togglePermission({ code: 'users.view' }, true)
     expect(vm.draftPermissions).toEqual(['cycle.a', 'cycle.b'])
+  })
+
+  test('extreme config adds its view dependency and is removed with the view permission', () => {
+    const vm = context(['permissions.manage'], true)
+    setCatalog(vm)
+    vm.selectedUser = { id: 8, account: 'target', is_permission_root: false }
+
+    vm.togglePermission('quotation.extreme.config', true)
+    expect(vm.draftPermissions).toEqual([
+      'quotation.extreme.view',
+      'quotation.extreme.config'
+    ])
+
+    vm.togglePermission('quotation.extreme.view', false)
+    expect(vm.draftPermissions).toEqual([])
   })
 
   test('a directly injected malformed catalog cannot enter draft or create a false sensitivity preview', async() => {
@@ -934,6 +972,13 @@ describe('permission page template', () => {
         node.attrsMap &&
         node.attrsMap.type === 'selection'
     )
+    const remarkColumns = nodes.filter(
+      node =>
+        node.tag === 'el-table-column' &&
+        node.attrsMap &&
+        node.attrsMap.prop === 'remark' &&
+        node.attrsMap.label === '备注'
+    )
     const permissionCheckboxes = editorRecords.filter(
       record =>
         record.node.tag === 'el-checkbox' &&
@@ -951,6 +996,8 @@ describe('permission page template', () => {
     )
 
     expect(selectionColumns).toHaveLength(0)
+    expect(remarkColumns).toHaveLength(1)
+    expect(remarkColumns[0].attrsMap).toHaveProperty('show-overflow-tooltip')
     expect(groupLoops).toHaveLength(1)
     expect(permissionCheckboxes).toHaveLength(1)
     expect(permissionCheckboxes[0].node.attrsMap[':value']).toBe(

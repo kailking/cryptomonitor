@@ -102,45 +102,6 @@ export const constantRoutes = [
   //     }
   //   ]
   // },
-  {
-    path: "/quotation",
-    component: Layout,
-    redirect: "/quotation/diff",
-    name: "交易对数据",
-    meta: { title: "交易对数据", icon: "example" },
-    children: [
-      {
-        path: "diff",
-        name: "行情对比",
-        component: () => import("@/views/quotation/diff"),
-        meta: { title: "行情对比", icon: "table" }
-      },
-      {
-        path: "diff_5",
-        name: "行情对比(量+)",
-        component: () => import("@/views/quotation/diff_5"),
-        meta: { title: "行情对比(量+)", icon: "table" }
-      },
-      {
-        path: "config",
-        name: "监控配置",
-        component: () => import("@/views/quotation/config"),
-        meta: { title: "监控配置", icon: "edit" }
-      },
-      {
-        path: "change",
-        name: "极端行情",
-        component: () => import("@/views/change/list"),
-        meta: { title: "极端行情", icon: "table" }
-      },
-      {
-        path: "change/config",
-        name: "极端行情配置",
-        component: () => import("@/views/change/config"),
-        meta: { title: "极端行情配置", icon: "edit" }
-      }
-    ]
-  }
   // {
   //   path: '/form',
   //   component: Layout,
@@ -233,6 +194,53 @@ export const constantRoutes = [
  * the routes that need to be dynamically loaded based on user permissions
  */
 export const asyncRoutes = [
+  {
+    path: "/quotation",
+    component: Layout,
+    redirect: "/quotation/diff",
+    name: "交易对数据",
+    meta: { title: "交易对数据", icon: "example" },
+    children: [
+      {
+        path: "diff",
+        name: "行情对比",
+        component: () => import("@/views/quotation/diff"),
+        meta: { title: "行情对比", icon: "table" }
+      },
+      {
+        path: "diff_5",
+        name: "行情对比(量+)",
+        component: () => import("@/views/quotation/diff_5"),
+        meta: { title: "行情对比(量+)", icon: "table" }
+      },
+      {
+        path: "config",
+        name: "监控配置",
+        component: () => import("@/views/quotation/config"),
+        meta: { title: "监控配置", icon: "edit" }
+      },
+      {
+        path: "change",
+        name: "极端行情",
+        component: () => import("@/views/change/list"),
+        meta: {
+          title: "极端行情",
+          icon: "table",
+          permissions: ["quotation.extreme.view"]
+        }
+      },
+      {
+        path: "change/config",
+        name: "极端行情配置",
+        component: () => import("@/views/change/config"),
+        meta: {
+          title: "极端行情配置",
+          icon: "edit",
+          permissions: ["quotation.extreme.config"]
+        }
+      }
+    ]
+  },
   {
     path: "/user",
     component: Layout,

@@ -86,6 +86,24 @@ class PermissionSeedSqlTest extends TestCase
                 ->count()
         );
         $this->assertSame(
+            0,
+            DB::table('user_permissions')
+                ->whereIn('permission_code', [
+                    'quotation.extreme.view',
+                    'quotation.extreme.config',
+                ])
+                ->count()
+        );
+        $this->assertSame(
+            0,
+            DB::table('permission_change_logs')
+                ->whereIn('permission_code', [
+                    'quotation.extreme.view',
+                    'quotation.extreme.config',
+                ])
+                ->count()
+        );
+        $this->assertSame(
             37,
             DB::table('permission_change_logs')
                 ->where('action', 'grant')

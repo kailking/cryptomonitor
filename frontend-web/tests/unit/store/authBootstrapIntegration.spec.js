@@ -155,7 +155,7 @@ describe('auth bootstrap integration', () => {
 
     expect(store.state.user.name).toBe('latest-user')
     expect(store.state.user.permissions).toEqual(['permissions.manage'])
-    expect(store.state.permission.addRoutes).toHaveLength(2)
+    expect(store.state.permission.addRoutes).toHaveLength(3)
     expect(router.match('/user/permissions').matched).toHaveLength(2)
     expect(
       router
@@ -199,7 +199,7 @@ describe('auth bootstrap integration', () => {
     expect(store.state.user.token).toBe('token-a')
     expect(store.state.user.name).toBe('latest-user')
     expect(store.state.user.permissions).toEqual(['permissions.manage'])
-    expect(store.state.permission.addRoutes).toHaveLength(2)
+    expect(store.state.permission.addRoutes).toHaveLength(3)
     expect(router.match('/user/permissions').matched).toHaveLength(2)
     expect(
       router

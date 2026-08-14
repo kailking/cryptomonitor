@@ -28,6 +28,10 @@ class RoutePermissionMapTest extends TestCase
             ['POST', 'api/setting/restart/platform', 'system.platform.restart'],
             ['POST', 'api/platform/address/config', 'platform.address.configure'],
             ['POST', 'api/platform/address/refresh', 'platform.address.configure'],
+            ['GET', 'api/market/change/list', 'quotation.extreme.view'],
+            ['POST', 'api/user/change/block_id', 'quotation.extreme.view'],
+            ['GET', 'api/quotation/change/config', 'quotation.extreme.config'],
+            ['POST', 'api/user/change/block_id/batch', 'quotation.extreme.config'],
         ];
 
         foreach ($expected as list($method, $uri, $permission)) {
@@ -53,8 +57,6 @@ class RoutePermissionMapTest extends TestCase
         $ordinaryRoutes = [
             ['POST', 'api/user/block_id'],
             ['POST', 'api/user/block_id/batch'],
-            ['POST', 'api/user/change/block_id'],
-            ['POST', 'api/user/change/block_id/batch'],
             ['GET', 'api/platform'],
             ['POST', 'api/quotation/diff/collect'],
             ['POST', 'api/user/filter'],

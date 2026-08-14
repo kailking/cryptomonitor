@@ -19,6 +19,16 @@
       >
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="account" label="账号" />
+        <el-table-column
+          prop="remark"
+          label="备注"
+          min-width="180"
+          show-overflow-tooltip
+        >
+          <template slot-scope="scope">
+            {{ displayRemark(scope.row.remark) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="80" />
         <el-table-column
           prop="permission_count"
@@ -362,6 +372,9 @@ export default {
     },
     groupLabel(group) {
       return GROUP_LABELS[group] || group
+    },
+    displayRemark(value) {
+      return typeof value === "string" && value.trim().length > 0 ? value : "—"
     },
     catalogEntries() {
       const groups = validateCatalog(this.catalog)

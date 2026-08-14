@@ -10,6 +10,20 @@ return [
             'depends_on' => [],
             'sensitive' => false,
         ],
+        'quotation.extreme.view' => [
+            'name' => '查看极端行情',
+            'group' => 'quotation',
+            'type' => 'page',
+            'depends_on' => [],
+            'sensitive' => true,
+        ],
+        'quotation.extreme.config' => [
+            'name' => '管理极端行情配置',
+            'group' => 'quotation',
+            'type' => 'page',
+            'depends_on' => ['quotation.extreme.view'],
+            'sensitive' => true,
+        ],
         'users.view' => [
             'name' => '查看用户',
             'group' => 'users',

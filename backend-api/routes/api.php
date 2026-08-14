@@ -60,10 +60,14 @@ Route::get('index/currency_price', 'Api\IndexController@currencyPrice');//首页
     Route::get('quotation/diff/wd_info', 'Api\QuotationController@diffWithdrawInfo');//diff冲提币详情
 
     Route::any('quotation/diff/config', 'Api\QuotationController@diffConfig');//监控配置
-    Route::any('quotation/change/config', 'Api\QuotationController@changeConfig');//监控配置
-    Route::get('market/change/list', 'Api\QuotationController@changeList');//
-    Route::post('user/change/block_id', 'Api\UserController@updateChangeConfig');//用户保存过滤条件
-    Route::post('user/change/block_id/batch', 'Api\UserController@updateChangeConfigBatch');//用户保存过滤条件
+    Route::get('quotation/change/config', 'Api\QuotationController@changeConfig')
+        ->middleware('check_permission:quotation.extreme.config');//监控配置
+    Route::get('market/change/list', 'Api\QuotationController@changeList')
+        ->middleware('check_permission:quotation.extreme.view');
+    Route::post('user/change/block_id', 'Api\UserController@updateChangeConfig')
+        ->middleware('check_permission:quotation.extreme.view');//用户保存过滤条件
+    Route::post('user/change/block_id/batch', 'Api\UserController@updateChangeConfigBatch')
+        ->middleware('check_permission:quotation.extreme.config');//用户批量保存过滤条件
     Route::get('platform', 'Api\QuotationController@platform');//平台列表
     Route::post('user/filter', 'Api\UserController@saveFilter');//用户保存过滤条件
     Route::get('user/filter', 'Api\UserController@getFilter');//获取过滤条件

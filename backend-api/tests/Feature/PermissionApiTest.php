@@ -59,6 +59,7 @@ class PermissionApiTest extends TestCase
                 'status' => 2,
                 'expired_at' => '2026-08-20 12:34:56',
                 'is_admin' => 0,
+                'remark' => '李先生测试账号',
             ],
             [
                 'id' => self::SECOND_TARGET_USER_ID,
@@ -67,6 +68,7 @@ class PermissionApiTest extends TestCase
                 'status' => 1,
                 'expired_at' => null,
                 'is_admin' => 0,
+                'remark' => null,
             ],
             [
                 'id' => self::GRANTER_USER_ID,
@@ -122,7 +124,11 @@ class PermissionApiTest extends TestCase
         );
         $this->assertSame(
             [
-                ['quotation.profit.view'],
+                [
+                    'quotation.profit.view',
+                    'quotation.extreme.view',
+                    'quotation.extreme.config',
+                ],
                 [
                     'users.view',
                     'users.create',
@@ -155,6 +161,11 @@ class PermissionApiTest extends TestCase
             array_keys($json['data'][0]['permissions'][0])
         );
         $this->assertFalse($json['data'][0]['permissions'][0]['sensitive']);
+        $this->assertSame(
+            ['quotation.extreme.view'],
+            $json['data'][0]['permissions'][2]['depends_on']
+        );
+        $this->assertTrue($json['data'][0]['permissions'][2]['sensitive']);
     }
 
     public function test_user_list_only_exposes_contract_fields_and_uses_account_search(): void
@@ -185,6 +196,7 @@ class PermissionApiTest extends TestCase
             [
                 'id',
                 'account',
+                'remark',
                 'status',
                 'expired_at',
                 'is_permission_root',
@@ -193,6 +205,8 @@ class PermissionApiTest extends TestCase
             array_keys($json['data']['data'][0])
         );
         $this->assertSame(self::TARGET_USER_ID, $json['data']['data'][0]['id']);
+        $this->assertSame('李先生测试账号', $json['data']['data'][0]['remark']);
+        $this->assertNull($json['data']['data'][1]['remark']);
         $this->assertSame(2, $json['data']['data'][0]['status']);
         $this->assertSame(
             '2026-08-20 12:34:56',
