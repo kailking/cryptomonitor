@@ -14,6 +14,8 @@ const name = defaultSettings.title || "vue Admin Template"; // page title
 // You can change the port by the following methods:
 // port = 9528 npm run dev OR npm run dev --port = 9528
 const port = process.env.port || process.env.npm_config_port || 9528; // dev port
+const proxyTarget =
+  process.env.FRONTEND_PROXY_TARGET || "http://8.129.88.114:28181/";
 
 // All configuration item explanations can be find in https://cli.vuejs.org/config/
 module.exports = {
@@ -38,7 +40,7 @@ module.exports = {
     },
     proxy: {
       [process.env.VUE_APP_BASE_API]: {
-        target: "http://8.129.88.114:28181/",
+        target: proxyTarget,
         changeOrigin: true
       }
     }
