@@ -102,6 +102,212 @@
 
 ## 4. 部署记录
 
+### 2026-08-15 / CM-20260815-MARKET-VOLUME-V1 / 24 小时 USDT 成交额采集、筛选与展示
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 部署中（服务器上传与前置检查已开始；尚未完成发布验收） |
+| 计划日期与窗口 | 2026-08-15 一小时维护窗口；Asia/Shanghai |
+| 实际开始/结束时间 | 2026-08-15 19:19 开始服务器 Tool 前置检查；结束待补 |
+| 环境 | 本地验证完成；生产部署中 |
+| 变更目标 | 每 15 分钟采集启用交易所的现货 USDT 24 小时成交额，通过独立 DB10 和 Go 内存快照仅给极端行情提供展示及最小成交额筛选 |
+| cryptomonitor 变更前基线 | `526d680daa986e3b3cd2c9361be822d581a3d34d` |
+| cryptomonitor 业务提交 | `7c03205fc29ef8a242c308f7d754d5cac54a1eac`；极端行情成交额 Tool/API/Frontend 代码与测试 |
+| cryptomonitor 本地代理提交 | `a99eb9c5484134f20e3c00aa4c38337fbb283cae`；仅支持开发环境覆盖前端代理目标，不是生产上传文件 |
+| go_project 变更前基线 | `04aa4c0fed54dfffcb669a125712fe52515456a4` |
+| go_project 业务提交 | `3366c67c49c33edd1cb6ad278657261d5c326c6a`；仅本地提交、不推送，关联记录 `GO-20260815-MARKET-VOLUME-V1` |
+| 服务器目标 | Tool `/www/wwwroot/tool`；API `/www/wwwroot/bishujucoin.com`；前端预验收 `/www/wwwroot/bishujucoin.com/public/nweweb`、正式 `/www/wwwroot/bishujucoin.com/public/web`；Go `/www/wwwroot/go_project/exchange_hub` |
+| 实施/部署/验证/回滚负责人 | 待现场记录 |
+
+#### 最终架构与数据契约
+
+- 只采集 `CurrencyQuotation::$platform_text` 当前启用的现货交易所与 USDT 交易对；当前 14 家为 HTX(1)、Binance(2)、OKX(3)、Gate(4)、MEXC(5)、KuCoin(8)、CoinEx(9)、LBank(10)、Bitget(15)、Bybit(16)、WEEX(19)、XT(21)、Phemex(22)、Pionex(23)。Provider 映射与启用平台不一致时，在发起任何交易所请求前失败。每个值严格取交易所原生 24 小时 USDT quote turnover：不是基础币成交数量，不做 `base volume × price` 估算；原生 quote turnover 缺失、非正数或非法时跳过该 symbol。
+- 生产定时入口是 Laravel Scheduler 调用 `tool/scripts/update_market_volume.sh`，不是一个 Artisan 进程串行跑完 14 家。脚本每轮先执行 `market-volume:sync --list-platforms`，从 `CurrencyQuotation::$platform_text` 动态取得并校验当前启用 ID；之后每个平台各启动一个独立 `market-volume:sync --platform=<id>` Artisan 子进程，默认错开 30 秒启动、运行 120 秒后发送 TERM，仍未退出则再给 10 秒强制结束，最后等待全部子任务并按平台汇总退出状态。
+- 按当前 14 家和默认参数，本轮在 `t=0` 启动第一家、`t=6m30s` 启动最后一家；最后一个子任务的 120 秒超时点约为 `t=8m30s`，若需用满 10 秒强制结束宽限，整轮严格上限约为 `t=8m40s`，仍小于 15 分钟调度间隔。shell `flock` 覆盖发现、错峰、全部子进程和汇总阶段，Laravel 同时保留 `withoutOverlapping(30)`，形成整轮双层防重入。
+- 无 `--platform` 的手工 `php artisan market-volume:sync` 仍按平台串行，只用于全量 `--dry-run` 和 DB10 首次人工发布，不作为生产定时入口。每个定时子进程只请求一家并独立发布；单个平台失败只保留其上一版快照，不更新采集时间、发布时间或 TTL，其他成功平台不受影响。空快照、异常截断快照和非法十进制拒绝发布。
+- Tool 原始成交额快照只写独立 KeyDB DB10，不与行情 DB3、结果 DB9 或现有 DB11 混存；Go 只把极端行情需要的可选 `v/vu` 投影到既有 DB9 generation。Tool 与 Go 配置门禁都只接受专用 DB10 或另行核验的 DB12+，明确拒绝小于 10 的库和 DB11；本次生产固定 DB10。namespace 为 `market_volume:v1:namespace = cryptomonitor-market-volume-v1`；稳定数据是每平台一个 Hash：`market_volume:v1:platform:{platform_id}:usdt`，普通 field 是 symbol，值是十进制字符串，`__meta__` 保存 schema、平台、Provider、generation、采集/发布时间、业务过期时间和 symbol 数。
+- 每个平台先写带短 TTL 的 staging Hash，校验 field 数后通过 `RENAME` 原子替换稳定 Hash。业务 stale 为 1800 秒，物理 TTL 为 3600 秒；读取端 30 分钟后立即隐藏，KeyDB 最迟 60 分钟自动删除。采集失败不能为旧 Key 续命。
+- Go `market_change_to_redis_v2` 每 60 秒读取 DB10，校验完整 Hash 后原子换入本进程不可变内存快照；极端行情高频循环只查内存。DB10 读取失败可暂留上一快照，但每次 lookup 仍按原始 deadline 判断，不能无限续命。行情对比计算链路不读取本功能的 DB10 数据，也不属于本次范围。
+- 极端行情只按该条记录的平台与 USDT symbol 查询单平台成交额，并向同一 generation 的详情及方向索引写可选 `v/vu`。既有 Redis schema 版本和价格字段不变；行情对比 DB9 数据结构不增加成交额字段。
+- API 对极端行情的 `v/vu` 再次执行 1800 秒 stale/future/十进制校验。`min_volume_24h_usdt` 在分页前按单平台成交额筛选：开启筛选时缺失/过期数据直接排除；筛选为空时保留价格记录并返回 `null`、`volume_available=false`。
+- 前端只在极端行情上涨/下跌两个页面增加最小 24h USDT 成交额条件和成交额/更新时间列，过期或缺失显示 `--`，格式化值保留精确值与时间提示；保留任意金额输入并提供 `0 / 10万 / 50万 / 100万 / 300万` 快捷项，其中 `0` 表示关闭过滤；筛选值进入这两个页面各自已有的 common filter 保存契约。行情对比页面不变。
+- 无 MySQL 新表、字段、索引、migration、DDL、backfill 或行情 UPDATE。配置表仍按既有 MySQL 流程持久化。无新 Supervisor 项；只重启既有 `market_change_to_redis_v2`。
+
+#### 生产运行文件上传清单
+
+以下路径先冻结为本次生产运行文件范围。每个文件 SHA-256 必须在业务代码冻结后补入，且候选提交内容、上传包和服务器文件三方一致；在 SHA 未补齐前，本记录不得改为“待部署”。`.env.example`、测试和本文档只进入 Git/构建验证，不覆盖服务器真实配置。
+
+| 组件 | 仓库相对路径 | 生产目标/操作 | SHA-256 |
+|---|---|---|---|
+| Tool | `tool/app/Console/Kernel.php` | `/www/wwwroot/tool/app/Console/Kernel.php` | `d751269e42ba04a69c7c2d5eb36eb1e6b49d7b48d789ba214ddde5effb1dd147` |
+| Tool | `tool/app/Console/Commands/MarketVolume/SyncMarketVolume.php` | `/www/wwwroot/tool/app/Console/Commands/MarketVolume/SyncMarketVolume.php` | `a89122c46d85d6b5500829c6e4aa54fdc88b78a3faf298b53e21df00a53514a9` |
+| Tool | `tool/scripts/update_market_volume.sh` | `/www/wwwroot/tool/scripts/update_market_volume.sh`；上传后保持 `0755`，由 Scheduler 前台调用 | `ea8c77f401194fdec87055531738206f40be4a78b065b12dbe34b6739778500d` |
+| Tool | `tool/app/Service/MarketVolume/Contracts/MarketVolumeHttpClientInterface.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Contracts/MarketVolumeHttpClientInterface.php` | `2c608c06e6396737f69a9ce65f280824dedacfe227971e2c8433ee4f96c41f5a` |
+| Tool | `tool/app/Service/MarketVolume/Contracts/MarketVolumeProviderInterface.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Contracts/MarketVolumeProviderInterface.php` | `c5cb8e57114940130fcd70e349b230fa9f50b3981e4001ec2052645c05753036` |
+| Tool | `tool/app/Service/MarketVolume/Contracts/MarketVolumeStoreInterface.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Contracts/MarketVolumeStoreInterface.php` | `a3d9c550f3dbdb1798f529514e9c4382c1287b9857db518bc81b710e3b48fee9` |
+| Tool | `tool/app/Service/MarketVolume/Http/CurlJsonHttpClient.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Http/CurlJsonHttpClient.php` | `3392c9a9704db7f4de4ced610c01215e7213261044ec18fb6374db0538b20ed0` |
+| Tool | `tool/app/Service/MarketVolume/MarketVolumeCollector.php` | `/www/wwwroot/tool/app/Service/MarketVolume/MarketVolumeCollector.php` | `4314bc17ca97d559e4025ab5efa1ce55c8ecc878adbd3ad10e896fd998acd09d` |
+| Tool | `tool/app/Service/MarketVolume/MarketVolumeProviderRegistry.php` | `/www/wwwroot/tool/app/Service/MarketVolume/MarketVolumeProviderRegistry.php` | `f42eb0631fc3009757c33d03b94fc65db969856f5cc34183e9bedafde9cec331` |
+| Tool | `tool/app/Service/MarketVolume/RedisMarketVolumeStore.php` | `/www/wwwroot/tool/app/Service/MarketVolume/RedisMarketVolumeStore.php` | `b2f09bee69fa4db83f7b11fe4cdedc1c40187134639795b9ecf9b56c245b03cd` |
+| Tool | `tool/app/Service/MarketVolume/Providers/AbstractMarketVolumeProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/AbstractMarketVolumeProvider.php` | `3bf522edb6a6469ea94bad6c455741c0285687ab8e5a7d7f563d6a86d16961c5` |
+| Tool | `tool/app/Service/MarketVolume/Providers/HtxProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/HtxProvider.php` | `27d1cbbfa946512954cc15f8acf21abe58a84e7cd3dd94b8ffa2ece3871f50d3` |
+| Tool | `tool/app/Service/MarketVolume/Providers/BinanceProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/BinanceProvider.php` | `7530f34d0941a625e5cec313a31cac5331f2df7a3d1979d40065da49150fd554` |
+| Tool | `tool/app/Service/MarketVolume/Providers/OkxProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/OkxProvider.php` | `2d3ee89d84d2d7d81a344502520d9d50ec3c98da4bd8a791e6fa0a3100d7cbe1` |
+| Tool | `tool/app/Service/MarketVolume/Providers/GateProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/GateProvider.php` | `94ea8912cccab1905ace81a54ab2b7b7e9137817f0ba970218147152bada591f` |
+| Tool | `tool/app/Service/MarketVolume/Providers/MexcProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/MexcProvider.php` | `54e9cada6715afb09ee1ccbe705cff73e7c7d297ed4a57cc85d1c015b1f7bad3` |
+| Tool | `tool/app/Service/MarketVolume/Providers/KucoinProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/KucoinProvider.php` | `3738c07370afc0b76c77447603e8baa32127773d064f7b5e5d49e1415e29dbc2` |
+| Tool | `tool/app/Service/MarketVolume/Providers/CoinexProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/CoinexProvider.php` | `8658fe234068879b4627e54d7256f8e7165b0014e3fd3148892f9d4bc26bbd61` |
+| Tool | `tool/app/Service/MarketVolume/Providers/LbankProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/LbankProvider.php` | `d69472d80016c1ef38e9a705428f491ee4d193046be68430b3ee2db137faaad4` |
+| Tool | `tool/app/Service/MarketVolume/Providers/BitgetProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/BitgetProvider.php` | `3383656cfadf1d30ca552f1648d2801827c381cff9572ef32fafc55fb34d36a1` |
+| Tool | `tool/app/Service/MarketVolume/Providers/BybitProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/BybitProvider.php` | `dbbce4f2f4d2419950738a47652f2817cae6713e54a2891ebd1aebebd5649724` |
+| Tool | `tool/app/Service/MarketVolume/Providers/WeexProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/WeexProvider.php` | `910f8746745d16b89c5c996b0167be64756f41e848366eddbb39ce921dfb0aaf` |
+| Tool | `tool/app/Service/MarketVolume/Providers/XtProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/XtProvider.php` | `ed5a5422085bea7d2ea2a6c6ab1c91885aad7e383e9f19674400d0d7ab3e6d1c` |
+| Tool | `tool/app/Service/MarketVolume/Providers/PhemexProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/PhemexProvider.php` | `4c5b1732d1e4a7a61e811a3043ebf42e5688e0f9cdead5630713bc4f5706e1c8` |
+| Tool | `tool/app/Service/MarketVolume/Providers/PionexProvider.php` | `/www/wwwroot/tool/app/Service/MarketVolume/Providers/PionexProvider.php` | `3a9cf637f3028cd8eb44ab1577a330deeb507f3c089f720e62f9d49225a22081` |
+| Tool | `tool/config/market_volume.php` | `/www/wwwroot/tool/config/market_volume.php` | `39f438f42b78539541ef8870d2ef33e04b1fc420f1cc3bb9ec29526e21e6eec2` |
+| Tool test | `tool/tests/Unit/MarketVolume/MarketVolumeCoreTest.php` | 服务器发布前定向验证；不参与运行时 | `7bd890a02eed7c9f6277143fe03688443e5a7bdde4c38fa0d67bb3878ad4f55b` |
+| Tool test | `tool/tests/Unit/MarketVolume/MarketVolumeCommandTest.php` | 服务器发布前定向验证；不参与运行时 | `07c4eebc85fdcb660ab9238a1d71a3f8eb0fd055a3d674aae456f4911af0c37a` |
+| Tool test | `tool/tests/Unit/MarketVolume/MarketVolumeScheduleTest.php` | 服务器发布前定向验证；不参与运行时 | `34fcc3a8317e92d45ca0c2cd93a8e02d176e97113ec2af33f659582e141796d2` |
+| Tool test | `tool/tests/Unit/MarketVolume/MarketVolumeSyncScriptTest.php` | 服务器发布前验证动态平台、错峰、超时、等待与退出码；不参与运行时 | `03bb51f3609da4558ce6105ba7ae70b0a2ba1639588ae35c49bb3d79944ae83a` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/MajorProvidersTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `fdc86ecd63ca372feb05872fbd51fa7da5474624b4ef40be395852c85da2cca9` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/CoinexProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `775ea519dda01a1ae260edc48dcf485b88e246c92358dc4de847106905023757` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/LbankProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `fe7b9e44a983cfbb8b94dcb7581ccd637da009571bde14d3b766b69f6ce57b48` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/PhemexProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `f169660bb9b2e48a85f3b8fa8e29009afeff69711b03b7067fe15fad9955b81a` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/PionexProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `c1171a0124995866cd0e7d21e52c35d9bde09753e1435b18cb8fe80ecf0b254e` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/WeexProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `7ae0fab0bf6ef76cb421884ee009b400afb65feaee6e7c9e625551bb5b68927f` |
+| Tool test | `tool/tests/Unit/MarketVolume/Providers/XtProviderTest.php` | 服务器发布前 Provider fixture 验证；不参与运行时 | `4c999ebac61693028c90a640f8b9b773bc21f57202449f60f006518ddc07d8fe` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/binance.json` | Provider 测试脱敏 fixture；不参与运行时 | `77df2f966a09a3a7d1d3dafb9624baf2bba9e4b3e226636511520fbf86334e51` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/bitget.json` | Provider 测试脱敏 fixture；不参与运行时 | `788a0b3941c1a83c6f7568d00874f95e013832a0c93be86f5dbe8afeb0910540` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/bybit.json` | Provider 测试脱敏 fixture；不参与运行时 | `f4c9858a67108eea813ac68d99010befe8875d40fd903b531a852ab38e664662` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/coinex_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `af6333b5729a6e95ce092346e09cd78a32a94731648ff18f41960d52ce27ce75` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/gate.json` | Provider 测试脱敏 fixture；不参与运行时 | `146806f5f6ebacf6790555c492f0d118145014039287d09136db212b6c6007e7` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/htx.json` | Provider 测试脱敏 fixture；不参与运行时 | `896b8661ae74638a3aa46e825525e996fec995b3a2fd27ab6a3a6217e32028f6` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/kucoin.json` | Provider 测试脱敏 fixture；不参与运行时 | `ecc00ce710456f749c573dc05262e160b82bc56696b0f15e77f3e9a942845d7c` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/lbank_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `341708d91fb2f033696f246d68cd3ec79dde58cdc25bb369b422d39cd1c72e2d` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/mexc.json` | Provider 测试脱敏 fixture；不参与运行时 | `07d13376f461db39d699269d529a1e623bc50f222e5a42231975d7bead590436` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/okx.json` | Provider 测试脱敏 fixture；不参与运行时 | `ca03ae59bdd8e5c190d83b09c554241ea7bc91207b987f1a466bfd5cd7bb2e31` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/phemex_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `32240504b89e3540468be305a6bc36a6981fdc0940b2044e60b77db429e4d496` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/pionex_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `e585c5ef824a03c9beae976097b87ab04ef0bdfa2f0d8a0a5a5a6fbc15871fc6` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/weex_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `d75fd2062620e014568bfb7c76146ea26cb70cec492f347d5eec7c4f52b89599` |
+| Tool fixture | `tool/tests/Unit/MarketVolume/Fixtures/xt_tickers.json` | Provider 测试脱敏 fixture；不参与运行时 | `2cbc2140ebbf87dcbb40d62ac61498a46cc58b9b7b866e4288e84ad3e248a15e` |
+| API | `backend-api/app/Services/MarketChangeDataSource.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeDataSource.php` | `9485d315a08fbe430123168585a7caeca37d1916a9cf005cf242b64ee782a548` |
+| API | `backend-api/app/Services/MarketChangeRedisGenerationService.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeRedisGenerationService.php` | `01f839f4c0873600c719212b043440b1a90222f7e7e54ab1dcd55f70b3a00e43` |
+| API | `backend-api/app/Services/MarketChangeResponseFormatter.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeResponseFormatter.php` | `10a284a002e459bd4b6d89805bc20cbaad318206d6633164af1cc5300a3a7a31` |
+| API | `backend-api/app/Services/MarketVolumeFreshness.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketVolumeFreshness.php` | `da28f6179a4889e162dc9cee716b7fabfaa117c7b09a341e15a819af95a80cc5` |
+| API | `backend-api/config/market_volume.php` | `/www/wwwroot/bishujucoin.com/config/market_volume.php` | `cee425de520adb2dee26ae3d3aa8e6b187b2ba1be31c0b184549abd731c48222` |
+| API test config | `backend-api/phpunit.xml` | 服务器发布前 PHPUnit 配置；不参与运行时 | `ac86a56e82fa3f44026bba80af9378c3a864e2c6390ca4a668c9e2b49119f9d2` |
+| API test | `backend-api/tests/Unit/MarketChangeDataSourceContractTest.php` | 服务器发布前 MarketChange 契约验证；不参与运行时 | `c314a1165fff97bb6cd5b6f1992c0d46acc4f1003a377c5948811856cb2709a4` |
+| API test | `backend-api/tests/Unit/MarketChangeRedisGenerationServiceTest.php` | 服务器发布前分页前筛选验证；不参与运行时 | `db636b1f15043c35c0e7e9a718f17444bede6b73aa2c57a93069ae350ce9a0fe` |
+| API test | `backend-api/tests/Unit/MarketVolumeFreshnessTest.php` | 服务器发布前 stale/精确比较验证；不参与运行时 | `77b11201ef0e292b18218cb81e548f50ec799b65f863712c5ddb5c1bf32b559a` |
+| Frontend source | `frontend-web/src/components/MarketVolumeCell/index.vue` | 参与唯一一次 Node 14 构建，不直接覆盖生产源码 | `9bcf27ada903622f043a38da8e46cddefd09198ac2d377238908fa63058b1fb8` |
+| Frontend source | `frontend-web/src/utils/marketVolume.js` | 参与唯一一次 Node 14 构建，不直接覆盖生产源码 | `bd18d505e29289d093304d45c3de876387f799d75a602e694a3a3f2ea1713d90` |
+| Frontend source | `frontend-web/src/views/change/left.vue` | 参与唯一一次 Node 14 构建，不直接覆盖生产源码 | `4f9cfbd6cb5060688f71c6ffdc6aad4c8825937a25f93b01747bb5ad5c399c4f` |
+| Frontend source | `frontend-web/src/views/change/right.vue` | 参与唯一一次 Node 14 构建，不直接覆盖生产源码 | `cd81521b21b0540347cf3e90ba5796a95bf4abc784b57cf8a8608631e6e10255` |
+| Frontend test | `frontend-web/tests/unit/utils/marketVolume.spec.js` | 本地/构建环境验证；不参与生产运行 | `3183aaa5249daac6653f75ad99bdb4e1ed8dcbaeac5a89018724b0833cf5f586` |
+| Frontend test | `frontend-web/tests/unit/views/marketVolumeFilterPersistence.spec.js` | 极端上涨/下跌筛选保存、快捷档位和激活态验证；不参与生产运行 | `b59d2a88a2ad914a58a3f3d477fac12d3d28efc93836c066cd251a35e5e804a6` |
+| Frontend 发布产物 | `frontend-web/dist/web` | 文档提交后固定 Node `14.21.3` 重新构建；要求 `build-meta.json.gitSha` 等于最终 cryptomonitor HEAD，并在仓库外生成逐文件 SHA-256 manifest | 当前旧 HEAD 产物禁止部署；本轮最终 manifest 待构建后随发布包冻结 |
+
+关联 Go 生产文件不混入本表，以 `go_project/DEPLOYMENT_LEDGER.md` 的 `GO-20260815-MARKET-VOLUME-V1` 逐文件清单为唯一依据。Tool、API 和前端所有本次新增/修改测试及 Tool fixture 已在上表逐文件列出；这些文件用于 Git、服务器发布前或构建环境验证，不参与生产运行。配置模板 `tool/.env.example` 的最终 SHA-256 为 `055c04f70f88f5381773bbb2226b02a9763f751dee14c178bca1f3e544a89d17`，`backend-api/.env.example` 为 `45c2d4fdcc2fb99fe785f43acc4a2a5b53fadf6f1149f286e0d86905e589c720`。模板只进 Git，不能覆盖真实 `.env`；shell 的错峰、超时、日志、锁和 binary/path 覆盖变量不是 Laravel `.env` 配置项。
+
+#### SQL、Scheduler 与环境变量
+
+- SQL、migration、DDL、MySQL 新表/字段/索引、backfill：**无**。发布时不得运行 `php artisan migrate`，也不得新增成交额配置表。
+- 新 Supervisor 配置：**无**。Tool 采集器是短时 Artisan 任务，不是常驻进程。
+- 生产只保留既有唯一 Laravel Scheduler 系统 cron（通常为每分钟一次 `cd /www/wwwroot/tool && php artisan schedule:run`）。本次 `Kernel.php` 在 `03/18/33/48` 分前台执行 `/usr/bin/env bash tool/scripts/update_market_volume.sh`，并保留 `withoutOverlapping(30)`；脚本自身再以非阻塞 `flock` 锁住从平台发现到全部子任务汇总的整轮。代码、Kernel fallback 和 `.env.example` 都默认关闭，单纯上传文件不会请求交易所或写 DB10，必须在全部验收后显式设 `MARKET_VOLUME_SCHEDULE_ENABLED=true`。不得再加第二条成交额 cron、不得由 Supervisor 管理脚本，也不得人工常驻运行。
+- 服务器真实 `.env` 只逐项编辑，禁止用 `.env.example` 覆盖；以下不包含任何连接密码或 DSN：
+
+| 组件 | 变量 | 建议值/作用 | 部署结果 |
+|---|---|---|---|
+| Tool | `MARKET_VOLUME_REDIS_DB` | 本次固定 `10`；代码只接受专用 DB10 或核验后的 DB12+，拒绝 `<10`/DB11；不能改全局 `REDIS_DB` 代替 | 待验证 |
+| Tool | `MARKET_VOLUME_REDIS_PREFIX` | `market_volume:v1` | 待验证 |
+| Tool | `MARKET_VOLUME_MAX_AGE_SECONDS` | `1800`，业务 stale | 待验证 |
+| Tool | `MARKET_VOLUME_TTL_SECONDS` | `3600`，稳定 Hash 物理 TTL | 待验证 |
+| Tool | `MARKET_VOLUME_TEMP_TTL_SECONDS` | `600`，staging Hash 保护 TTL | 待验证 |
+| Tool | `MARKET_VOLUME_MIN_SNAPSHOT_RATIO` | `0.5`，防止异常截断快照覆盖上一版 | 待验证 |
+| Tool | `MARKET_VOLUME_PLATFORM_DELAY_MS` | `500`，仅手工全量命令内部串行请求间隔；定时脚本不使用它错峰 | 待验证 |
+| Tool | `MARKET_VOLUME_SCHEDULE_ENABLED` | 代码和模板默认 `false`；全部验收后生产必须显式改 `true`，回滚先恢复 `false` | 待验证 |
+| Tool | `MARKET_VOLUME_HTTP_CONNECT_TIMEOUT` | `3` 秒 | 待验证 |
+| Tool | `MARKET_VOLUME_HTTP_TIMEOUT` | `10` 秒 | 待验证 |
+| Tool | `MARKET_VOLUME_HTTP_RETRIES` | `1` | 待验证 |
+| Tool | `MARKET_VOLUME_HTTP_RETRY_DELAY_MS` | `500` 毫秒 | 待验证 |
+| Tool | `MARKET_VOLUME_HTTP_USER_AGENT` | 可选；默认 `cryptomonitor-market-volume/1.0` | 待验证 |
+| API | `MARKET_VOLUME_MAX_AGE_SECONDS` | `1800`，API 二次 stale 校验，必须与 Go/Tool 一致 | 待验证 |
+
+Tool 继续复用服务器已有 `REDIS_HOST`、`REDIS_PASSWORD` 等安全连接项；本记录不改变、不输出其真实值。Go 环境变量见关联 Go 台账。
+
+下列值是 `update_market_volume.sh` 自带的 shell 进程环境默认值，**不会从 Tool 的 Laravel `.env` 读取，也不要写入 `.env.example` 冒充应用配置**。生产按默认路径部署时无需设置；只有服务器 binary 或路径不同，才在实际 `schedule:run` 进程环境中显式覆盖并留台账：
+
+| shell 环境变量 | 默认值 | 作用 | 部署结果 |
+|---|---|---|---|
+| `MARKET_VOLUME_STAGGER_SECONDS` | `30` | 每个平台独立 Artisan 进程的启动间隔 | 待验证 |
+| `MARKET_VOLUME_TASK_TIMEOUT_SECONDS` | `120` | 达到后由 GNU `timeout` 发送 TERM；该平台判失败，其他平台继续 | 待验证 |
+| `MARKET_VOLUME_TASK_KILL_AFTER_SECONDS` | `10` | TERM 后仍未退出时发送 KILL；单任务严格上限约 130 秒 | 待验证 |
+| `MARKET_VOLUME_LOG_FILE` | `/www/wwwroot/tool/storage/logs/market-volume-sync.log` | 平台级结构化日志 | 待验证 |
+| `MARKET_VOLUME_LOCK_FILE` | `/www/wwwroot/tool/storage/framework/market-volume-sync.lock` | 非阻塞 `flock` 整轮锁 | 待验证 |
+| `MARKET_VOLUME_PHP_BIN` | `/usr/bin/php` | Artisan 子进程 PHP binary | 待验证 |
+| `MARKET_VOLUME_TOOL_DIR` | `/www/wwwroot/tool` | Artisan、日志和锁的应用根目录 | 待验证 |
+| `MARKET_VOLUME_FLOCK_BIN` | `flock` | 整轮非阻塞锁 binary | 待验证 |
+| `MARKET_VOLUME_TIMEOUT_BIN` | `timeout` | 单平台进程组超时管理 binary | 待验证 |
+
+#### DB10 首次发布前置门禁
+
+1. 先从服务器现有安全配置确认本次连接的 KeyDB 实例；用交互式密码方式进入 DB10，记录 `INFO keyspace`、`SELECT 10`、`DBSIZE` 和 `GET market_volume:v1:namespace` 的结果，不把密码放进命令历史或台账。
+2. 首次部署只允许 `DBSIZE=0`。如果 DB10 非空且 marker 不存在或不等于 `cryptomonitor-market-volume-v1`，立即停止；**不执行 `FLUSHDB`、`DEL` 或迁移未知 Key**，先由用户确认 DB10 实际归属。
+3. 先执行不会写 DB10 的接口验证：
+
+```bash
+cd /www/wwwroot/tool
+php artisan market-volume:sync --dry-run
+```
+
+预期 14 家均为 `DRY-RUN OK` 且 USDT symbol 数合理。任一 Provider 失败时先修接口/网络，不建立 namespace、不启动 Scheduler。
+
+本地冻结候选已用真实公开接口完成全 14 家 `--dry-run`，均成功且没有写 DB10：HTX(1)=592、Binance(2)=733、OKX(3)=370、Gate(4)=2081、MEXC(5)=1699、KuCoin(8)=839、CoinEx(9)=753、LBank(10)=1002、Bitget(15)=1190、Bybit(16)=409、WEEX(19)=1668、XT(21)=804、Phemex(22)=478、Pionex(23)=314 个 USDT symbols。该结果证明本地网络与解析契约，不替代生产服务器在部署窗口重新执行的 dry-run。
+
+4. 只有上述门禁通过，才人工执行一次 `php artisan market-volume:sync`。首次成功写入会建立 namespace；随后逐平台检查 Hash 类型、`HLEN`、`__meta__` 的 `platform_id/fetched_at_ms/stale_after_seconds/symbol_count`、稳定 Key TTL，并确认没有残留 staging Key。不得打印整张 Hash。
+5. 记录首次运行前后 DB10 `dbsize`、KeyDB ops/sec、延迟、内存和任务耗时；预期只有 1 个 namespace string、14 个稳定 Hash，以及执行瞬间的有界 staging Key，不应按 symbol 产生独立 Key。
+
+#### 生产部署顺序
+
+1. **冻结和备份**：补齐双仓完整提交 SHA、表中逐文件 SHA、前端产物 manifest；备份 Tool/API 覆盖文件、正式 `public/web`、`market_change_to_redis_v2` 旧 binary 和两处真实 `.env`（备份不得进入 Git）。记录现有唯一 Scheduler cron、该 Supervisor 项的 PID/command/CWD、DB9/DB10 与 KeyDB 资源基线。
+2. **Tool 代码但先不调度**：上传 Tool 运行文件、完整 `tool/tests/Unit/MarketVolume` 测试/fixture 树和脚本并核对 SHA；真实 `.env` 只设置表中的 Laravel 应用变量，并先保持 `MARKET_VOLUME_SCHEDULE_ENABLED=false`，不要把脚本 shell 覆盖变量写入 `.env`。对脚本执行 `chmod 0755`、`bash -n`，确认 PHP 路径、Tool CWD、日志/锁目录可由 Scheduler 用户写入，并用 `command -v flock`、`command -v timeout` 验证两项 Linux 依赖。执行 `php -l`、Artisan/Provider/Command/Schedule/Script 定向测试，再运行 `php artisan market-volume:sync --list-platforms`，输出必须与 `CurrencyQuotation::$platform_text` 当前启用 ID 完全一致。最后执行 DB10 门禁和串行全平台 `--dry-run`。
+3. **首次 DB10 快照和调度脚本手工验收**：DB10 确认为空后，先用 `php artisan market-volume:sync --list-platforms` 验证 14 个动态平台 ID，再在 Scheduler 仍关闭时以前台 `bash scripts/update_market_volume.sh`（或直接执行已具 0755 权限的脚本）完成错峰并发首轮；不得用 `sh scripts/update_market_volume.sh` 绕过 Bash shebang。记录每个平台启动/结束/超时状态、整轮退出码和两个日志文件，并验收稳定 Hash、metadata、30 分钟业务过期和约 60 分钟 TTL。任一平台失败时不进入 Go 切换。当前 14 家默认应在 0～6 分 30 秒内全部启动；最后任务的 120 秒超时点约为 8 分 30 秒，计入 10 秒强制结束宽限的严格上限约为 8 分 40 秒。脚本退出后不得遗留 Artisan/timeout/sleep 子进程或临时输出目录。
+4. **API 向后兼容发布**：上传 MarketChange API 文件并核对 SHA；执行 `php -l`、定向 PHPUnit，随后 `php artisan config:clear`。先用旧 Go 结果验证不带 `v/vu` 时极端行情 API 仍返回价格行、成交额为 `null`/不可用；筛选开启时 fail-closed 且在分页前执行。行情对比 API 不在本次发布范围。
+5. **Go 服务器构建和切换**：按 `GO-20260815-MARKET-VOLUME-V1` 上传源码，在生产 Linux 上测试并只构建 `market_change_to_redis_v2.new`；不上传本机 binary。备份旧 `market_change_to_redis_v2` 后原子切换，并只通过既有 Supervisor 项重启；不 `reread/update`、不新增配置、不在 shell 直接常驻运行。
+6. **链路验收**：等待最多一个 `MARKET_VOLUME_RELOAD_INTERVAL_SECONDS`，确认同一 DB9 generation 的极端行情详情和方向索引出现完全相同的可选 `v/vu`。抽查值对应单个平台的原生 USDT quote turnover；模拟/等待 stale 边界时字段必须自动消失，不能由 reload 续命。
+7. **前端预验收再正式切换**：候选提交形成后用 Node `14.21.3` 唯一执行一次 `npm run build:web`，生成逐文件 manifest 和规范化文件树哈希；原字节先发布到 `public/nweweb`，完成登录态下极端上涨/下跌两页筛选、分页、筛选保存、`--` stale 展示和浏览器 console 验收，并回归行情对比页面未受影响，再把同一批字节原子切换到 `public/web`。两阶段之间禁止重新构建。
+8. **开启唯一调度**：所有链路验收通过后把 Tool 的 `MARKET_VOLUME_SCHEDULE_ENABLED=true`，执行 `php artisan config:clear`；核实系统只有原有一条 `schedule:run` cron。观察至少两个 15 分钟周期（`03/18/33/48`）：Laravel 调度输出写 `storage/logs/market-volume.log`，脚本平台级结构化结果默认写 `storage/logs/market-volume-sync.log`。验证每轮只有一把 `flock`、动态平台数准确、最后平台约在 6 分 30 秒启动、正常超时点约 8 分 30 秒且强制结束严格上限约 8 分 40 秒，下一轮不会与上一轮重叠；同时复核 DB10 metadata/TTL 和 KeyDB/Go/API 资源指标，再结束发布。
+
+#### 验证门禁
+
+| 类别 | 检查项 | 预期 | 当前结果 |
+|---|---|---|---|
+| PHP Tool | MarketVolume 单测、所有新 PHP 文件 `php -l`、动态 `--list-platforms`、全量 `--dry-run` | Provider/命令/调度/脚本契约通过；动态平台与配置一致；生产网络全平台成功 | 本地 `59 tests / 190 assertions`、相关 PHP lint、动态 14 个 ID 输出通过；真实 14 家 dry-run 既有结果见上；生产仍须重跑 |
+| Tool shell | `bash -n`、权限、`flock`、`timeout`、30 秒错峰、120+10 秒终止边界、等待与信号清理 | 整轮防重入；平台独立失败；当前 14 家最后启动 6m30s、120 秒超时点 8m30s、强制结束上限约 8m40s；无残留子进程 | 本地 `bash -n`、0755、假 PHP/flock/timeout 的并发/失败/锁契约测试通过；macOS 无 GNU timeout，真实进程组 TERM/KILL 与无残留仍须在生产 Linux 前台验收 |
+| DB10 | namespace、14 个 Hash、metadata、TTL、失败不续命、无 staging 泄漏 | 结构准确，30 分钟隐藏/60 分钟清理，不按 symbol 增 Key | 生产待验证 |
+| Backend | 极端行情成交额 freshness、精确十进制比较、分页前 fail-closed、旧 Go 兼容 | 定向/全量 PHPUnit 通过 | 本地成交额定向 `19 tests / 75 assertions` 通过；生产 API 待验证 |
+| Go | marketvolume/extreme focused test、race、vet、Linux build | 单平台内存快照和极端行情可选字段契约通过，无数据竞争 | focused test/race/vet 与 Linux build 通过；生产服务器仍须重跑，详见 Go 台账 |
+| Frontend | lint、Jest、Node 14 build、`nweweb` 两个极端行情页面浏览器验收 | 筛选持久化、五档快捷项、展示、分页和 stale `--` 正常，无 console 错误；行情对比不变 | Node 14 lint、成交额定向 2 suites / 30 tests 通过；旧 HEAD 构建不可部署，最终提交后的唯一生产构建与登录态浏览器验收待完成 |
+| 运行资源 | Tool 执行耗时、DB10/DB9 ops、KeyDB latency/memory、`market_change_to_redis_v2` CPU/heap/GC | 无持续增长、blocked/rejected client 或原行情链路延迟回归 | 生产待验证 |
+
+#### 回滚
+
+- 触发条件：DB10 归属不明、全量 dry-run/首次发布失败、脚本重入、子任务不受 120+10 秒终止边界约束、整轮超过预期仍不收口、遗留子进程、Key 数或内存持续增长、极端行情 `v/vu` 错误、API 兼容/筛选错误、页面回归、Go/KeyDB 延迟影响原行情链路。
+- 先把 `MARKET_VOLUME_SCHEDULE_ENABLED=false` 并清理 Tool 配置缓存，停止后续轮次；**保留唯一全局 Scheduler cron**，因为它还服务其他任务。若已有一轮运行，先核实 shell PID、完整命令、CWD、锁文件和其直属子进程，只向该轮入口发送 TERM 并确认脚本按设计清理自己启动的 timeout/Artisan/sleep 子进程，不按进程名批量结束其他服务。
+- 按反向顺序恢复正式 `public/web`、MarketChange API 文件/配置、旧 `market_change_to_redis_v2` Linux binary 和 Tool 的 Kernel、Command、config、脚本及环境参数；Go 进程只通过原 Supervisor 项切换，核实唯一 PID、command 和 CWD。成交额脚本从未新增 Supervisor 配置，无配置可删除。
+- SQL/MySQL：无回滚动作，不执行 migrate/rollback，不删除任何配置或行情记录。
+- Redis：不 `FLUSHDB`，不清 DB3/DB9/DB10。停止采集后 DB10 的 14 个稳定 Hash 按原 TTL 最迟约 60 分钟自然消失，namespace marker 可保留以标识 DB 归属；Go/API 回滚后极端行情 DB9 的 `v/vu` 随后续 generation 自然消失。
+- 回滚后验证极端行情原价格链路和原筛选保存恢复、行情对比未受影响、Scheduler 其他任务及 `market_change_to_redis_v2` 均正常；记录回滚时间、binary/file SHA 和原因。
+
+#### 结果与补充
+
+- 最终状态：部署中。Provider/API/前端/Go 主链路、14 家 Provider 验证、Tool 并发调度脚本和自动化测试均已有本地证据，业务提交已形成；生产验收尚未完成，Scheduler 仍应保持关闭。
+- 服务器已只读确认 `market-volume:sync --list-platforms` 输出 14 个启用平台，DB10 首次检查为空。首次用 `sh update_market_volume.sh` 的平台发现失败不计为成功发布；须上传最终脚本后用 Bash 前台重跑并记录完整日志。Go 服务器首次构建因漏传 `exchange_hub/internal/marketvolume` 失败，须按 Go 台账完整清单补齐后重新测试和构建。
+- 最终 cryptomonitor 提交后的前端生产产物 manifest、服务器 PID/资源、DB10 首轮快照和生产验收证据仍须补齐；未执行项不能写“通过”。
+- `go_project/weex_spike_monitor/*` 当前已有其他任务的未提交改动，明确不属于本次 24h 成交额范围，不得被本次提交、上传、构建、重启或回滚清单带入。
+
 ### 2026-08-14 / CM-20260814-EXTREME-PERMISSIONS-REMARKS / 极端行情权限与用户备注
 
 #### 基本信息
