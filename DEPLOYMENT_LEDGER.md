@@ -117,7 +117,7 @@
 | cryptomonitor 业务提交 | `7c03205fc29ef8a242c308f7d754d5cac54a1eac`；极端行情成交额 Tool/API/Frontend 代码与测试 |
 | cryptomonitor 本地代理提交 | `a99eb9c5484134f20e3c00aa4c38337fbb283cae`；仅支持开发环境覆盖前端代理目标，不是生产上传文件 |
 | go_project 变更前基线 | `04aa4c0fed54dfffcb669a125712fe52515456a4` |
-| go_project 业务提交 | `3366c67c49c33edd1cb6ad278657261d5c326c6a`；仅本地提交、不推送，关联记录 `GO-20260815-MARKET-VOLUME-V1` |
+| tool_go / exchange_hub 独立仓库 | 业务提交 `b6fec74ac8e9fbbc00345c665e6bdfc0af7d1145`；台账提交及远端 `main` 为 `584808be1dbadc7e416ef74727d4dfeabfa4487a`，已正常 fast-forward 推送；关联记录 `GO-20260815-MARKET-VOLUME-V1` |
 | 服务器目标 | Tool `/www/wwwroot/tool`；API `/www/wwwroot/bishujucoin.com`；前端预验收 `/www/wwwroot/bishujucoin.com/public/nweweb`、正式 `/www/wwwroot/bishujucoin.com/public/web`；Go `/www/wwwroot/go_project/exchange_hub` |
 | 实施/部署/验证/回滚负责人 | 待现场记录 |
 
