@@ -8,10 +8,12 @@ use App\Service\RedisService;
 class MarketChangeRedisGenerationService
 {
     private $redis;
+    private $volumeFreshness;
 
-    public function __construct($redis = null)
+    public function __construct($redis = null, MarketVolumeFreshness $volumeFreshness = null)
     {
         $this->redis = $redis;
+        $this->volumeFreshness = $volumeFreshness ?: new MarketVolumeFreshness();
     }
 
     /**
@@ -103,6 +105,12 @@ class MarketChangeRedisGenerationService
             if ($item['change'] < 0 || $item['change'] > 2000) {
                 continue;
             }
+            if (!$this->volumeFreshness->passesExtreme(
+                $item,
+                isset($filters['min_volume_24h_usdt']) ? $filters['min_volume_24h_usdt'] : null
+            )) {
+                continue;
+            }
 
             $qualified[] = $item;
         }
@@ -112,7 +120,13 @@ class MarketChangeRedisGenerationService
         $pageSize = max(1, (int) $pageSize);
         $pagedIndex = array_slice($qualified, ($page - 1) * $pageSize, $pageSize);
         $ids = array_column($pagedIndex, 'id');
-        $items = $this->readDetails($redis, $dataKey, $pagedIndex, (int) $direction);
+        $items = $this->readDetails(
+            $redis,
+            $dataKey,
+            $pagedIndex,
+            (int) $direction,
+            isset($filters['min_volume_24h_usdt']) ? $filters['min_volume_24h_usdt'] : null
+        );
 
         return [
             'generation' => $generation,
@@ -173,7 +187,7 @@ class MarketChangeRedisGenerationService
         }
     }
 
-    private function readDetails($redis, $hashKey, array $indexItems, $direction)
+    private function readDetails($redis, $hashKey, array $indexItems, $direction, $minVolumeThreshold = null)
     {
         $ids = array_column($indexItems, 'id');
         if (empty($ids)) {
@@ -216,6 +230,13 @@ class MarketChangeRedisGenerationService
                 || abs((float) $normalized['change'] - (float) $indexItem['change']) > 0.000001) {
                 throw $this->unavailable('generation index and detail metadata do not match for ID '.$id);
             }
+            if ($minVolumeThreshold !== null) {
+                if (!$this->volumeFreshness->passesExtreme($normalized, $minVolumeThreshold)
+                    || $normalized['volume_24h_usdt'] !== $indexItem['volume_24h_usdt']
+                    || $normalized['volume_updated_at_ms'] !== $indexItem['volume_updated_at_ms']) {
+                    throw $this->unavailable('generation index and detail volume do not match for ID '.$id);
+                }
+            }
             $items[] = $normalized;
         }
 
@@ -247,14 +268,14 @@ class MarketChangeRedisGenerationService
             throw $this->unavailable('direction index item market metadata is invalid');
         }
 
-        return [
+        return array_merge([
             'id' => (int) $id,
             'match_id' => (int) $matchId,
             'platform' => (int) $platform,
             'currency_name' => MarketChangeSymbolNormalizer::upper($currencyName),
             'quote_name' => MarketChangeSymbolNormalizer::upper($quoteName),
             'change' => (float) $change,
-        ];
+        ], $this->volumeFreshness->extreme($item));
     }
 
     private function normalizeDetail(array $detail, $indexId)
@@ -299,7 +320,7 @@ class MarketChangeRedisGenerationService
             throw $this->unavailable('generation detail prices must be fixed 18-place decimal strings');
         }
 
-        return [
+        return array_merge([
             'id' => (int) $id,
             'match_id' => (int) $matchId,
             'symbol' => MarketChangeSymbolNormalizer::upper($symbol),
@@ -314,7 +335,7 @@ class MarketChangeRedisGenerationService
             'quote_name' => MarketChangeSymbolNormalizer::upper($quoteName),
             'created_at' => $createdAt,
             'updated_at' => $updatedAt,
-        ];
+        ], $this->volumeFreshness->extreme($detail));
     }
 
     private function decodeObject($json, $label)

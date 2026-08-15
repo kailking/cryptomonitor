@@ -265,6 +265,48 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
         (new MarketChangeRedisGenerationService($redis))->readPage(1, [], 1, 50);
     }
 
+    public function test_volume_is_filtered_from_index_before_pagination_and_rechecked_in_detail(): void
+    {
+        config()->set('market_volume.max_age_seconds', 1800);
+        $nowMs = (int) floor(microtime(true) * 1000);
+        $envelope = [
+            'schema_version' => 2,
+            'generation' => 'volume-filter',
+            'generated_at_ms' => $nowMs,
+            'api_max_age_seconds' => 5,
+            'warmup_complete' => true,
+        ];
+        $qualified = ['i' => 70, 'm' => 700, 'p' => 2, 'cn' => 'BTC', 'qn' => 'USDT', 'c' => 2,
+            'v' => '2000000', 'vu' => $nowMs];
+        $below = ['i' => 71, 'm' => 701, 'p' => 2, 'cn' => 'ETH', 'qn' => 'USDT', 'c' => 1,
+            'v' => '500000', 'vu' => $nowMs];
+        $detail = array_merge($this->detail(70, 700, 2, 'BTC', 2), [
+            'v' => '2000000', 'vu' => $nowMs,
+        ]);
+        $redis = new FakeMarketChangeRedis([
+            'v2:market_change:current_generation' => 'volume-filter',
+            'v2:market_change:generation:volume-filter:meta' => json_encode($envelope),
+            'v2:market_change:generation:volume-filter:index:up' => json_encode(array_merge($envelope, [
+                'data' => [$qualified, $below],
+            ])),
+        ], [
+            'v2:market_change:generation:volume-filter:data' => [
+                '70' => json_encode($detail),
+            ],
+        ]);
+
+        $result = (new MarketChangeRedisGenerationService($redis))->readPage(1, [
+            'min_volume_24h_usdt' => '1000000',
+        ], 1, 50);
+
+        $this->assertSame(1, $result['total']);
+        $this->assertSame([70], array_column($result['items'], 'id'));
+        $this->assertSame([['70']], $redis->hmgetCalls);
+        $this->assertTrue($result['items'][0]['volume_available']);
+        $this->assertSame('2000000', $result['items'][0]['volume_24h_usdt']);
+        $this->assertSame($nowMs, $result['items'][0]['volume_updated_at_ms']);
+    }
+
     private function detail($id, $matchId, $platform, $currency, $change)
     {
         return [

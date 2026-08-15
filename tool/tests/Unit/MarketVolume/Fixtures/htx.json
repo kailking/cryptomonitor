@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "ts": 1780000000000,
+  "data": [
+    {"symbol": "btcusdt", "vol": 12345.67, "amount": 0.18},
+    {"symbol": "zerousdt", "vol": 0, "amount": 0},
+    {"symbol": "ethbtc", "vol": "999.00"},
+    {"symbol": "nullusdt", "vol": null},
+    {"symbol": "missingusdt"},
+    {"symbol": "negusdt", "vol": -1.00}
+  ]
+}

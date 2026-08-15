@@ -1,0 +1,8 @@
+[
+  {"currency_pair": "BTC_USDT", "quote_volume": "12345.67", "base_volume": "0.18"},
+  {"currency_pair": "ZERO_USDT", "quote_volume": "0"},
+  {"currency_pair": "ETH_BTC", "quote_volume": "999.00"},
+  {"currency_pair": "NULL_USDT", "quote_volume": null},
+  {"currency_pair": "MISSING_USDT"},
+  {"currency_pair": "NEG_USDT", "quote_volume": "-1.00"}
+]

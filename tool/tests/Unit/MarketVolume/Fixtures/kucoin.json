@@ -1,0 +1,14 @@
+{
+  "code": "200000",
+  "data": {
+    "time": 1780000000000,
+    "ticker": [
+      {"symbol": "BTC-USDT", "volValue": "12345.67", "vol": "0.18"},
+      {"symbol": "ZERO-USDT", "volValue": "0"},
+      {"symbol": "ETH-BTC", "volValue": "999.00"},
+      {"symbol": "NULL-USDT", "volValue": null},
+      {"symbol": "MISSING-USDT"},
+      {"symbol": "NEG-USDT", "volValue": "-1.00"}
+    ]
+  }
+}

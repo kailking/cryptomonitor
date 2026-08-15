@@ -28,6 +28,22 @@
 .market-data-unavailable .el-alert {
   flex: 1;
 }
+.market-volume-quick-filter {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 10px;
+  vertical-align: top;
+}
+.market-volume-quick-filter-label {
+  margin-right: 6px;
+  color: #606266;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.market-volume-quick-filter .el-button {
+  padding-right: 8px;
+  padding-left: 8px;
+}
 </style>
 <template>
   <div>
@@ -96,6 +112,32 @@
             :value="item.key"
           />
         </el-select>
+        <el-input
+          v-model.trim="query.min_volume_24h_usdt"
+          clearable
+          placeholder="24h成交额大于多少U"
+          style="width: 165px"
+          :size="is_mobile ? 'small' : 'default'"
+          class="filter-item"
+          @keyup.enter.native="handleFilterSave"
+          @blur="handleFilterSave"
+          @clear="handleFilterSave"
+        />
+        <span class="market-volume-quick-filter">
+          <span class="market-volume-quick-filter-label">快捷</span>
+          <el-button-group aria-label="24h成交额快捷筛选">
+            <el-button
+              v-for="item in volumeQuickOptions"
+              :key="item.label"
+              :size="is_mobile ? 'mini' : 'small'"
+              :type="isVolumeQuickFilterActive(item.value) ? 'primary' : 'default'"
+              @mousedown.native.prevent
+              @click="applyVolumeQuickFilter(item.value)"
+            >
+              {{ item.label }}
+            </el-button>
+          </el-button-group>
+        </span>
         <!-- <span style="margin-right: 5px; margin-left: 5px">
         杠杆
         <el-switch
@@ -300,6 +342,37 @@
         </template>
       </el-table-column>
       <el-table-column
+        v-if="lists[3].ispass"
+        label="24h成交额(USDT)"
+        align="center"
+        prop="volume_24h_usdt"
+        :width="getWidth('volume_24h_usdt', 145)"
+      >
+        <template slot-scope="scope">
+          <market-volume-cell
+            :row="scope.row"
+            value-key="volume_24h_usdt"
+            timestamp-key="volume_updated_at_ms"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column
+        v-if="lists[4].ispass"
+        label="成交额更新时间"
+        align="center"
+        prop="volume_updated_at_ms"
+        :width="getWidth('volume_updated_at_ms', 170)"
+      >
+        <template slot-scope="scope">
+          <market-volume-cell
+            :row="scope.row"
+            value-key="volume_24h_usdt"
+            timestamp-key="volume_updated_at_ms"
+            mode="time"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column
         v-if="lists[1].ispass"
         align="center"
         prop="updated_at"
@@ -363,6 +436,12 @@ import { copyText, isMobile, parseNumber } from "@/utils";
 import { buildPlatformTradeUrl } from "@/utils/platform";
 import { restartInterval, stopInterval } from "@/utils/interval";
 import { createLatestRequestGuard } from "@/utils/latestRequest";
+import {
+  getMarketVolumeFilterPayload,
+  MARKET_VOLUME_QUICK_OPTIONS,
+  restoreMarketVolumeFilter,
+} from "@/utils/marketVolume";
+import MarketVolumeCell from "@/components/MarketVolumeCell";
 const defaultData = {
   id: "",
   symbol: "",
@@ -400,7 +479,7 @@ export default {
     },
   },
   components: {
-    // Multiselect
+    MarketVolumeCell,
   },
   data() {
     return {
@@ -425,6 +504,16 @@ export default {
           label: "时间间隔(分钟)",
           ispass: false,
         },
+        {
+          key: "volume_24h_usdt",
+          label: "24h成交额(USDT)",
+          ispass: true,
+        },
+        {
+          key: "volume_updated_at_ms",
+          label: "成交额更新时间",
+          ispass: true,
+        },
       ],
       topic: Object.assign({}, defaultData),
       index: 0,
@@ -444,6 +533,7 @@ export default {
         symbol: "",
         diff_price: "",
         total_price: "",
+        min_volume_24h_usdt: "",
         platform: [],
         // block_symbol: [],
         block_ids: [],
@@ -452,6 +542,7 @@ export default {
         block_id_temp: [],
       },
       diffList: diffList,
+      volumeQuickOptions: MARKET_VOLUME_QUICK_OPTIONS,
       options: [],
       refresh_button: 2,
       second: 5000,
@@ -582,6 +673,7 @@ export default {
         key: "change_right_filter",
       });
       if (savedFilter.data.change) this.query.change = savedFilter.data.change;
+      restoreMarketVolumeFilter(this.query, savedFilter.data);
       if (savedFilter.data.second) this.second = savedFilter.data.second;
       if (savedFilter.data.refresh_button) {
         this.refresh_button = savedFilter.data.refresh_button;
@@ -635,9 +727,22 @@ export default {
       this.getTopics();
     },
     handleFilterSave() {
+      restoreMarketVolumeFilter(
+        this.query,
+        getMarketVolumeFilterPayload(this.query)
+      );
       this.saveFilter();
       this.query.page = 1;
       this.getTopics();
+    },
+    applyVolumeQuickFilter(value) {
+      this.query.min_volume_24h_usdt = value;
+      this.handleFilterSave();
+    },
+    isVolumeQuickFilterActive(value) {
+      return (
+        getMarketVolumeFilterPayload(this.query).min_volume_24h_usdt === value
+      );
     },
     handleSizeChange(size) {
       this.query.page_size = size;
@@ -690,11 +795,14 @@ export default {
     async saveFilter() {
       setCommonFilter({
         key: "change_right_filter",
-        object: {
-          change: this.query.change,
-          second: this.second,
-          refresh_button: this.refresh_button,
-        },
+        object: Object.assign(
+          {
+            change: this.query.change,
+            second: this.second,
+            refresh_button: this.refresh_button,
+          },
+          getMarketVolumeFilterPayload(this.query)
+        ),
       });
       //   const r = await setFilter(this.query)
       //   console.log(r.code)

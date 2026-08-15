@@ -1,0 +1,13 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {"instType": "SPOT", "instId": "BTC-USDT", "volCcy24h": "12345.67", "vol24h": "0.18"},
+    {"instType": "SPOT", "instId": "ZERO-USDT", "volCcy24h": "0"},
+    {"instType": "SPOT", "instId": "ETH-BTC", "volCcy24h": "999.00"},
+    {"instType": "SPOT", "instId": "NULL-USDT", "volCcy24h": null},
+    {"instType": "SPOT", "instId": "MISSING-USDT"},
+    {"instType": "SPOT", "instId": "NEG-USDT", "volCcy24h": "-1.00"},
+    {"instType": "SWAP", "instId": "FAKE-USDT-SWAP", "volCcy24h": "500.00"}
+  ]
+}

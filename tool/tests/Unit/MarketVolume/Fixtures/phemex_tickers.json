@@ -1,0 +1,14 @@
+{
+  "error": null,
+  "id": 0,
+  "result": [
+    {"symbol": "sBTCUSDT", "turnoverEv": "30253040159512835"},
+    {"symbol": "sETHUSDT", "turnoverEv": 1},
+    {"symbol": "sDOGEUSDT", "turnoverEv": 0},
+    {"symbol": "sBIGUSDT", "turnoverEv": "123456789012345678901234567890"},
+    {"symbol": "sETHBTC", "turnoverEv": "100000000"},
+    {"symbol": "BTCUSDT", "turnoverEv": "100000000"},
+    {"symbol": "sNEGUSDT", "turnoverEv": "-100000000"},
+    {"symbol": "sFLOATUSDT", "turnoverEv": "100.50"}
+  ]
+}

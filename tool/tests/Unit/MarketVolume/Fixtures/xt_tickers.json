@@ -1,0 +1,12 @@
+{
+  "rc": 0,
+  "mc": "SUCCESS",
+  "ma": [],
+  "result": [
+    {"s": "btc_usdt", "v": "232229846.1260615"},
+    {"s": "eth_usdt", "v": "0"},
+    {"s": "eth_btc", "v": "90210.25"},
+    {"s": "neg_usdt", "v": "-1"},
+    {"s": "missing_usdt"}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "retCode": 0,
+  "retMsg": "OK",
+  "time": 1780000000000,
+  "result": {
+    "category": "spot",
+    "list": [
+      {"symbol": "BTCUSDT", "turnover24h": "12345.67", "volume24h": "0.18"},
+      {"symbol": "ZEROUSDT", "turnover24h": "0"},
+      {"symbol": "ETHBTC", "turnover24h": "999.00"},
+      {"symbol": "NULLUSDT", "turnover24h": null},
+      {"symbol": "MISSINGUSDT"},
+      {"symbol": "NEGUSDT", "turnover24h": "-1.00"}
+    ]
+  }
+}

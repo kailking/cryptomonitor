@@ -1,0 +1,14 @@
+{
+  "result": true,
+  "timestamp": 1786737564317,
+  "data": {
+    "tickers": [
+      {"symbol": "BTC_USDT", "amount": "1903858080.64650464"},
+      {"symbol": "ETH_USDT", "amount": "0"},
+      {"symbol": "ETH_BTC", "amount": "1200.30"},
+      {"symbol": "NEG_USDT", "amount": "-1"},
+      {"symbol": "SCI_USDT", "amount": "1e5"},
+      {"symbol": "NULL_USDT", "amount": null}
+    ]
+  }
+}

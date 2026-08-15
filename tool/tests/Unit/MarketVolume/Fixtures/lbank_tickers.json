@@ -1,0 +1,13 @@
+{
+  "result": "true",
+  "error_code": 0,
+  "msg": "Success",
+  "ts": 1786737563259,
+  "data": [
+    {"symbol": "btc_usdt", "ticker": {"turnover": "966280941.61"}},
+    {"symbol": "eth_usdt", "ticker": {"turnover": "0"}},
+    {"symbol": "eth_btc", "ticker": {"turnover": "5000.25"}},
+    {"symbol": "neg_usdt", "ticker": {"turnover": "-1"}},
+    {"symbol": "missing_usdt", "ticker": {}}
+  ]
+}

@@ -24,8 +24,14 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        // $schedule->command('inspire')
-        //          ->hourly();
+        if (config('market_volume.schedule_enabled', false)) {
+            $script = base_path('scripts/update_market_volume.sh');
+
+            $schedule->exec('/usr/bin/env bash '.escapeshellarg($script))
+                ->cron('3,18,33,48 * * * *')
+                ->withoutOverlapping(30)
+                ->appendOutputTo(storage_path('logs/market-volume.log'));
+        }
     }
 
     /**

@@ -1,0 +1,12 @@
+{
+  "code": 0,
+  "message": "OK",
+  "data": [
+    {"market": "BTCUSDT", "value": "105060432.75"},
+    {"market": "ETHUSDT", "value": "0"},
+    {"market": "ETHBTC", "value": "90210.25"},
+    {"market": "NEGUSDT", "value": "-1"},
+    {"market": "SCIUSDT", "value": "1e6"},
+    {"market": "NULLUSDT", "value": null}
+  ]
+}

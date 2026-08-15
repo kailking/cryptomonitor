@@ -1,0 +1,14 @@
+{
+  "code": "00000",
+  "msg": "success",
+  "requestTime": 1780000000000,
+  "data": [
+    {"category": "SPOT", "symbol": "BTCUSDT", "turnover24h": "12345.67", "volume24h": "0.18"},
+    {"category": "SPOT", "symbol": "ZEROUSDT", "turnover24h": "0"},
+    {"category": "SPOT", "symbol": "ETHBTC", "turnover24h": "999.00"},
+    {"category": "SPOT", "symbol": "NULLUSDT", "turnover24h": null},
+    {"category": "SPOT", "symbol": "MISSINGUSDT"},
+    {"category": "SPOT", "symbol": "NEGUSDT", "turnover24h": "-1.00"},
+    {"category": "USDT-FUTURES", "symbol": "FAKEUSDT", "turnover24h": "500.00"}
+  ]
+}

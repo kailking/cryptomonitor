@@ -46,6 +46,7 @@
         <env name="MARKET_CHANGE_REDIS_MAX_AGE_SECONDS" value="5" force="true"/>
         <env name="MARKET_CHANGE_SHADOW_SAMPLE_PERCENT" value="10" force="true"/>
         <env name="MARKET_CHANGE_ERROR_LOG_INTERVAL_SECONDS" value="10" force="true"/>
+        <env name="MARKET_VOLUME_MAX_AGE_SECONDS" value="1800" force="true"/>
         <env name="PERMISSION_ROOT_USER_ID" value="31" force="true"/>
         <env name="DEVICE_COOKIE_NAME" value="bishuju_device" force="true"/>
         <env name="DEVICE_COOKIE_LIFETIME_MINUTES" value="525600" force="true"/>

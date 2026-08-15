@@ -1,0 +1,8 @@
+[
+  {"symbol": "BTCUSDT", "quoteVolume": "302604627.81261943"},
+  {"symbol": "ETHUSDT", "quoteVolume": "0"},
+  {"symbol": "ETHBTC", "quoteVolume": "12345.67"},
+  {"symbol": "NEGUSDT", "quoteVolume": "-1"},
+  {"symbol": "SCIUSDT", "quoteVolume": "2.5e4"},
+  {"symbol": "NULLUSDT", "quoteVolume": null}
+]

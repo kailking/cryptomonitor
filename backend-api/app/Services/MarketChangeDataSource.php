@@ -16,15 +16,18 @@ class MarketChangeDataSource
 {
     private $redisGenerations;
     private $responseFormatter;
+    private $volumeFreshness;
     private static $shadowLastSeen = [];
 
     public function __construct(
         MarketChangeRedisGenerationService $redisGenerations,
-        MarketChangeResponseFormatter $responseFormatter
+        MarketChangeResponseFormatter $responseFormatter,
+        MarketVolumeFreshness $volumeFreshness = null
     )
     {
         $this->redisGenerations = $redisGenerations;
         $this->responseFormatter = $responseFormatter;
+        $this->volumeFreshness = $volumeFreshness ?: new MarketVolumeFreshness();
     }
 
     public function list(Request $request, $userId)
@@ -51,6 +54,13 @@ class MarketChangeDataSource
         $change = (float) $request->get('change');
         $platform = $this->integerList($request->get('platform'));
         $temporaryIds = $this->integerList($request->get('block_id_temp'));
+        $minVolumeThreshold = $this->volumeFreshness->threshold($request->get('min_volume_24h_usdt'));
+
+        // The legacy table has no 24h turnover fields. A requested volume
+        // filter therefore fails closed instead of returning unverified rows.
+        if ($minVolumeThreshold !== null) {
+            return $this->emptyPaginator($request, $page, $pageSize);
+        }
 
         $list = MarketChange::join('currency_match', 'currency_match.id', '=', 'market_change.match_id')
             ->where('currency_match.is_enabled', 1)
@@ -91,9 +101,13 @@ class MarketChangeDataSource
             ->paginate($pageSize, ['*'], 'page', $page);
 
         $items = $paginator->getCollection();
-        $items->each(function ($item) {
+        $unavailableVolume = $this->volumeFreshness->unavailableExtreme();
+        $items->each(function ($item) use ($unavailableVolume) {
             $item->symbol = $item->currency_name.'/'.$item->quote_name;
             $item->append(['platform_text']);
+            foreach ($unavailableVolume as $field => $value) {
+                $item->{$field} = $value;
+            }
             return $item;
         });
         $paginator->setCollection($items);
@@ -129,6 +143,9 @@ class MarketChangeDataSource
             'excluded_platforms' => $excludedPlatforms,
             'symbol' => MarketChangeSymbolNormalizer::upper(trim((string) $request->get('symbol'))),
             'change_gt' => (float) $request->get('change'),
+            'min_volume_24h_usdt' => $this->volumeFreshness->threshold(
+                $request->get('min_volume_24h_usdt')
+            ),
         ], $page, $pageSize);
 
         $rows = [];
@@ -206,6 +223,7 @@ class MarketChangeDataSource
             'symbol' => $request->get('symbol'),
             'change' => $request->get('change'),
             'block_id_temp' => $request->get('block_id_temp'),
+            'min_volume_24h_usdt' => $request->get('min_volume_24h_usdt'),
         ]));
         $seenKey = $userId.'|'.$minute.'|'.$filterFingerprint;
         if (isset(self::$shadowLastSeen[$seenKey])) {
@@ -257,6 +275,21 @@ class MarketChangeDataSource
         return $user && $user->block_platform
             ? $this->integerList($user->block_platform)
             : [];
+    }
+
+    private function emptyPaginator(Request $request, $page, $pageSize)
+    {
+        return new LengthAwarePaginator(
+            collect([]),
+            0,
+            $pageSize,
+            $page,
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+                'pageName' => 'page',
+            ]
+        );
     }
 
 }

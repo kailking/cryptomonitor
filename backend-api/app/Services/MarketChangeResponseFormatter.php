@@ -13,7 +13,11 @@ class MarketChangeResponseFormatter
      */
     public function format(array $item)
     {
-        return [
+        // Re-check at response time because volume has a business freshness
+        // window shorter than the physical lifetime of its Redis keys.
+        $volume = (new MarketVolumeFreshness())->extreme($item);
+
+        return array_merge([
             'id' => (int) $item['id'],
             'match_id' => (int) $item['match_id'],
             'symbol' => $item['currency_name'].'/'.$item['quote_name'],
@@ -30,6 +34,6 @@ class MarketChangeResponseFormatter
             'currency_name' => (string) $item['currency_name'],
             'quote_name' => (string) $item['quote_name'],
             'platform_text' => CurrencyQuotation::$platform_text[(int) $item['platform']] ?? '--',
-        ];
+        ], $volume);
     }
 }
