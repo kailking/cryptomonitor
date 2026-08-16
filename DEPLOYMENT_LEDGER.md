@@ -102,6 +102,61 @@
 
 ## 4. 部署记录
 
+### 2026-08-16 / CM-20260816-EXTREME-30S-V1 / 极端行情 30 秒与 5 分钟双窗口
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 本地实现、自动测试与人工验收完成；提交已创建，待推送与生产部署 |
+| 计划日期与窗口 | 本地联调与人工验收完成后另定，Asia/Shanghai |
+| 实际开始/结束时间 | 本地人工验收已完成；生产待执行 |
+| 环境 | 本地开发；目标为生产 backend-api、frontend-web 与关联 Go 服务 |
+| 变更目标 | 在原 5 分钟极端行情之外增加独立 30 秒榜单；两个窗口共享筛选和用户隐藏 |
+| cryptomonitor 提交 | `91f0ad151e905aa6d792641fedb2443d4380a58d` |
+| go_project / tool_go 提交 | `a9f2a1080f19fa32e873a3625cf418592e9c7ad1` |
+| 服务器目标 | API `/www/wwwroot/bishujucoin.com`；前端按 `frontend-web/docs/release-checklist.md`；Go `/www/wwwroot/go_project/exchange_hub` |
+| SQL / 数据迁移 | 无；不新增表、字段、索引、migration 或 backfill |
+
+#### 契约与持久化边界
+
+- `GET /api/market/change/list` 新增可选 `window_seconds`，只接受 `30` 或 `300`；缺省为 `300`，非法值明确返回 HTTP 422。
+- 5 分钟继续读取 `v2:market_change`；30 秒读取独立可配置前缀 `v2:market_change:30s`。30 秒 key 缺失、过期或不一致时明确返回 503，禁止回退到 5 分钟结果。
+- API 同时校验选中 generation 的 `meta.window_seconds` 和每条详情的 `ps`。详情的 `pd`、响应 `period` 继续固定为 `5`，仅 `window_seconds` 表示真实计算窗口。
+- 两个窗口复用相同的 `(symbol, platform, period=5)` 身份和原生 `market_change.id`；首次真实异动仍只允许 `INSERT` 一条身份记录，后续高频计算不写 MySQL。
+- `market_change_user_filter.change_id` 不迁移、不复制；用户隐藏一个币种/平台身份后，30 秒和 5 分钟榜单同时隐藏。配置页明确只读取 `market_change.period=5`。
+- MySQL 与 shadow 只代表既有 5 分钟数据。请求 `window_seconds=30` 时不得伪装为 MySQL 结果；当前契约为配置非 Redis 数据源时返回 HTTP 422。
+
+#### cryptomonitor 运行文件候选清单
+
+| 相对路径 | 目标/作用 | SHA-256 | 操作 |
+|---|---|---|---|
+| `backend-api/app/Services/MarketChangeDataSource.php` | 参数、数据源边界、共享隐藏及窗口透传 | `23dca15c18d54b2e2875f8fc183494c8d6b35511a8130311c47855e2b84c85ad` | 替换 |
+| `backend-api/app/Services/MarketChangePaginator.php` | 空页也返回顶层 `window_seconds/window_text`，保留既有分页键 | `6d3f81491a5c3391d03b172d965a091acf24184cc87725f7582527a245a44dde` | 新增 |
+| `backend-api/app/Services/MarketChangeRedisGenerationService.php` | 独立前缀、meta/detail 窗口 fail-closed 校验 | `9358651b8369b7e875e0812fdb2a2b0dd5d3f834a167483491a6c9c3b3ea6281` | 替换 |
+| `backend-api/app/Services/MarketChangeResponseFormatter.php` | 返回 `window_seconds/window_text`，保留价格字符串精度修复 | `7d447c531b402acfc1b6299ff4581b25d528766f02750997090db45c0ff3ef02` | 替换 |
+| `backend-api/app/Http/Controllers/Api/QuotationController.php` | 配置页限定原生 `period=5` 身份 | `909671f243d48609e1b52af3daa468063268338f617f21091909e5c1a025805c` | 替换 |
+| `backend-api/config/market_change.php` | 声明 30 秒 Redis 前缀 | `2668ee3a1a7fa77f6ff800937fc8eebd86e5fca458f784eb86d22240df022c06` | 替换 |
+| `frontend-web/` 本次实际变更文件 | 双栏共用 30 秒/5 分钟选择器及 fail-closed 响应校验 | 冻结后逐文件补齐 | 单次 Node 14 构建后发布产物 |
+
+测试、`.env.example`、本台账只进入 Git 和验证材料，不作为生产运行文件直接覆盖。关联 Go 运行文件、binary 构建和 Supervisor 操作以 Go 仓库同编号台账的最终清单为准。
+
+#### 环境变量
+
+| 组件 | 变量名 | 新增/变更 | 作用 | 验证方式 | 结果 |
+|---|---|---|---|---|---|
+| backend-api | `MARKET_CHANGE_REDIS_PREFIX_30S` | 新增；默认 `v2:market_change:30s` | 30 秒 generation 独立命名空间 | 与 Go 30 秒发布者完全一致，且不得等于 5 分钟前缀 | PHP 7.2 定向契约测试通过；生产待验证 |
+| backend-api | `MARKET_CHANGE_SOURCE`、`MARKET_CHANGE_REDIS_PREFIX` | 既有 | 生产仍使用 Redis 数据源及原 5 分钟前缀 | 配置缓存刷新后只核对枚举与前缀，不输出真实值 | 待部署验证 |
+
+#### 验证与回滚
+
+- 自动化必须覆盖：缺省 300、显式 30、非法窗口 422、30 秒与 5 分钟独立 prefix、禁止跨窗口回退、meta/detail 窗口不一致 503、同一 ID 与 `period=5`、价格极小值精度回归。
+- PHP 7.2 后端定向测试实际为 `43 tests / 143 assertions` 全部通过，包含 `window_seconds[]=30`、嵌套数组、对象和显式空值参数均返回受控 422 的回归；PHPUnit 环境隔离清单测试为 `1 test / 69 assertions` 通过，所有变更 PHP 文件 lint 与 `git diff --check` 通过。全量 `256` 个测试尝试执行，但本地隔离 MySQL/Redis 主机名不可解析产生 `210` 个外部依赖错误，不能据此宣称全量通过。
+- 本地人工验收必须同时请求左右榜，切换窗口时两边同步、分页复位且旧请求不能覆盖新窗口；隐藏后两个窗口都不再出现同一 `change_id`。
+- 冷启动分别按真实窗口判断：30 秒榜约积累 30 秒后 ready，5 分钟榜仍需完整 300 秒；任何一侧未 ready 不污染另一侧命名空间。
+- 回滚顺序：先隐藏前端 30 秒入口，再回滚 backend-api 的 30 秒参数/前缀支持，最后停止 Go 的 30 秒发布；原 5 分钟前缀、MySQL 身份、用户隐藏记录和 5 分钟服务全程保留。
+- Redis 不执行 `FLUSHDB`；停止 30 秒发布后只让精确 `v2:market_change:30s` generation 按 TTL 自然过期。无 SQL 回滚。
+
 ### 2026-08-16 / CM-20260816-EXTREME-PRICE-PRECISION / 极端行情价格精度规范化
 
 #### 基本信息
