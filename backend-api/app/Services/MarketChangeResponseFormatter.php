@@ -19,6 +19,9 @@ class MarketChangeResponseFormatter
         // Re-check at response time because volume has a business freshness
         // window shorter than the physical lifetime of its Redis keys.
         $volume = (new MarketVolumeFreshness())->extreme($item);
+        $windowSeconds = isset($item['window_seconds'])
+            ? (int) $item['window_seconds']
+            : ((int) $item['period'] * 60);
 
         return array_merge([
             'id' => (int) $item['id'],
@@ -26,6 +29,8 @@ class MarketChangeResponseFormatter
             'symbol' => $item['currency_name'].'/'.$item['quote_name'],
             'platform' => (int) $item['platform'],
             'period' => (int) $item['period'],
+            'window_seconds' => $windowSeconds,
+            'window_text' => $windowSeconds === 30 ? '30秒' : '5分钟',
             'direction' => (int) $item['direction'],
             'change' => number_format((float) $item['change'], 4, '.', ''),
             // Go calculates prices with float64 and emits fixed-18 strings.

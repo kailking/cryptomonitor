@@ -12,6 +12,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
     {
         parent::setUp();
         config()->set('market_change.redis_prefix', 'v2:market_change');
+        config()->set('market_change.redis_prefix_30s', 'v2:market_change:30s');
         config()->set('market_change.redis_schema_version', 2);
         config()->set('market_change.redis_max_age_seconds', 5);
     }
@@ -25,6 +26,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $redis = new FakeMarketChangeRedis([
             'v2:market_change:current_generation' => 'g1',
@@ -56,6 +58,157 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
         $this->assertSame([10], array_column($result['items'], 'id'));
         $this->assertSame([['10']], $redis->hmgetCalls);
         $this->assertSame(5, $result['items'][0]['period']);
+        $this->assertSame(300, $result['window_seconds']);
+        $this->assertSame(300, $result['items'][0]['window_seconds']);
+    }
+
+    public function test_30_second_window_uses_its_own_prefix_and_reuses_the_legacy_identity(): void
+    {
+        $nowMs = (int) floor(microtime(true) * 1000);
+        $envelope = [
+            'schema_version' => 2,
+            'generation' => 'thirty',
+            'generated_at_ms' => $nowMs,
+            'api_max_age_seconds' => 5,
+            'warmup_complete' => true,
+            'window_seconds' => 30,
+        ];
+        $redis = new FakeMarketChangeRedis([
+            'v2:market_change:30s:current_generation' => 'thirty',
+            'v2:market_change:30s:generation:thirty:meta' => json_encode($envelope),
+            'v2:market_change:30s:generation:thirty:index:up' => json_encode(array_merge($envelope, [
+                'data' => [
+                    ['i' => 10, 'm' => 100, 'p' => 2, 'cn' => 'BTC', 'qn' => 'USDT', 'c' => 5.5],
+                ],
+            ])),
+        ], [
+            'v2:market_change:30s:generation:thirty:data' => [
+                '10' => json_encode($this->detail(10, 100, 2, 'BTC', 5.5, 30)),
+            ],
+        ]);
+
+        $result = (new MarketChangeRedisGenerationService($redis))
+            ->readPage(1, [], 1, 50, 30);
+
+        $this->assertSame(30, $result['window_seconds']);
+        $this->assertSame(10, $result['items'][0]['id']);
+        $this->assertSame(5, $result['items'][0]['period']);
+        $this->assertSame(30, $result['items'][0]['window_seconds']);
+    }
+
+    public function test_selected_generation_meta_must_match_the_requested_window(): void
+    {
+        $nowMs = (int) floor(microtime(true) * 1000);
+        $wrongMeta = [
+            'schema_version' => 2,
+            'generation' => 'wrong-meta-window',
+            'generated_at_ms' => $nowMs,
+            'api_max_age_seconds' => 5,
+            'warmup_complete' => true,
+            'window_seconds' => 300,
+        ];
+        $redis = new FakeMarketChangeRedis([
+            'v2:market_change:30s:current_generation' => 'wrong-meta-window',
+            'v2:market_change:30s:generation:wrong-meta-window:meta' => json_encode($wrongMeta),
+            'v2:market_change:30s:generation:wrong-meta-window:index:up' => json_encode(array_merge(
+                $wrongMeta,
+                ['data' => []]
+            )),
+        ], []);
+
+        $this->expectException(MarketChangeRedisUnavailableException::class);
+        $this->expectExceptionMessage('meta window_seconds');
+        (new MarketChangeRedisGenerationService($redis))->readPage(1, [], 1, 50, 30);
+    }
+
+    public function test_generation_detail_window_must_match_the_requested_window(): void
+    {
+        $nowMs = (int) floor(microtime(true) * 1000);
+        $envelope = [
+            'schema_version' => 2,
+            'generation' => 'wrong-detail-window',
+            'generated_at_ms' => $nowMs,
+            'api_max_age_seconds' => 5,
+            'warmup_complete' => true,
+            'window_seconds' => 30,
+        ];
+        $redis = new FakeMarketChangeRedis([
+            'v2:market_change:30s:current_generation' => 'wrong-detail-window',
+            'v2:market_change:30s:generation:wrong-detail-window:meta' => json_encode($envelope),
+            'v2:market_change:30s:generation:wrong-detail-window:index:up' => json_encode(array_merge($envelope, [
+                'data' => [
+                    ['i' => 10, 'm' => 100, 'p' => 2, 'cn' => 'BTC', 'qn' => 'USDT', 'c' => 5.5],
+                ],
+            ])),
+        ], [
+            'v2:market_change:30s:generation:wrong-detail-window:data' => [
+                '10' => json_encode($this->detail(10, 100, 2, 'BTC', 5.5, 300)),
+            ],
+        ]);
+
+        $this->expectException(MarketChangeRedisUnavailableException::class);
+        $this->expectExceptionMessage('detail window_seconds');
+        (new MarketChangeRedisGenerationService($redis))->readPage(1, [], 1, 50, 30);
+    }
+
+    public function test_unsupported_window_is_rejected_before_any_redis_read(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('30 or 300');
+
+        (new MarketChangeRedisGenerationService(new FakeMarketChangeRedis([], [])))
+            ->readPage(1, [], 1, 50, 10);
+    }
+
+    public function test_missing_30_second_generation_never_falls_back_to_the_5_minute_prefix(): void
+    {
+        $nowMs = (int) floor(microtime(true) * 1000);
+        $legacyEnvelope = [
+            'schema_version' => 2,
+            'generation' => 'legacy-only',
+            'generated_at_ms' => $nowMs,
+            'api_max_age_seconds' => 5,
+            'warmup_complete' => true,
+            'window_seconds' => 300,
+        ];
+        $redis = new FakeMarketChangeRedis([
+            'v2:market_change:current_generation' => 'legacy-only',
+            'v2:market_change:generation:legacy-only:meta' => json_encode($legacyEnvelope),
+            'v2:market_change:generation:legacy-only:index:up' => json_encode(array_merge(
+                $legacyEnvelope,
+                ['data' => []]
+            )),
+        ], []);
+
+        $this->expectException(MarketChangeRedisUnavailableException::class);
+        $this->expectExceptionMessage('generation pointer is missing');
+        (new MarketChangeRedisGenerationService($redis))->readPage(1, [], 1, 50, 30);
+    }
+
+    /**
+     * @dataProvider unsafePrefixes
+     */
+    public function test_redis_prefix_validation_matches_the_go_publisher($unsafePrefix): void
+    {
+        config()->set('market_change.redis_prefix_30s', $unsafePrefix);
+
+        $this->expectException(MarketChangeRedisUnavailableException::class);
+        $this->expectExceptionMessage('configured Redis prefix is invalid');
+        (new MarketChangeRedisGenerationService(new FakeMarketChangeRedis([], [])))
+            ->readPage(1, [], 1, 50, 30);
+    }
+
+    public function unsafePrefixes(): array
+    {
+        return [
+            'empty' => [''],
+            'leading whitespace' => [' v2:market_change:30s'],
+            'trailing whitespace' => ['v2:market_change:30s '],
+            'double separator' => ['v2::market_change'],
+            'trailing separator' => ['v2:market_change:'],
+            'unsafe dot' => ['v2.market_change'],
+            'over 96 bytes' => ['v'.str_repeat('2', 96)],
+        ];
     }
 
     public function test_stale_generation_is_not_returned_as_an_empty_list(): void
@@ -67,6 +220,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $oldMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
             'data' => [],
         ];
         $redis = new FakeMarketChangeRedis([
@@ -88,6 +242,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $redis = new FakeMarketChangeRedis([
             'v2:market_change:current_generation' => 'empty-enabled',
@@ -117,6 +272,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $index = $meta;
         $index['generated_at_ms']--;
@@ -140,6 +296,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $redis = new FakeMarketChangeRedis([
             'v2:market_change:current_generation' => 'g2',
@@ -162,6 +319,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $detail = $this->detail(40, 422, 1, '老子', 2.5);
         $redis = new FakeMarketChangeRedis([
@@ -201,6 +359,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $redis = new FakeMarketChangeRedis([
             'v2:market_change:current_generation' => 'missing-hash',
@@ -224,6 +383,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $redis = new ThrowingHmgetMarketChangeRedis([
             'v2:market_change:current_generation' => 'hmget-failure',
@@ -247,6 +407,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $detail = $this->detail(60, 600, 2, 'BTC', 1);
         $detail['pb'] = 0.000000000000000001;
@@ -275,6 +436,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             'generated_at_ms' => $nowMs,
             'api_max_age_seconds' => 5,
             'warmup_complete' => true,
+            'window_seconds' => 300,
         ];
         $qualified = ['i' => 70, 'm' => 700, 'p' => 2, 'cn' => 'BTC', 'qn' => 'USDT', 'c' => 2,
             'v' => '2000000', 'vu' => $nowMs];
@@ -307,7 +469,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
         $this->assertSame($nowMs, $result['items'][0]['volume_updated_at_ms']);
     }
 
-    private function detail($id, $matchId, $platform, $currency, $change)
+    private function detail($id, $matchId, $platform, $currency, $change, $periodSeconds = 300)
     {
         return [
             'i' => $id,
@@ -315,6 +477,7 @@ class MarketChangeRedisGenerationServiceTest extends TestCase
             's' => $currency.'USDT',
             'p' => $platform,
             'pd' => 5,
+            'ps' => $periodSeconds,
             'dr' => 1,
             'c' => $change,
             'pb' => '0.000000000000000001',

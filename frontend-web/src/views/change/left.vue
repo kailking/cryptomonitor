@@ -312,13 +312,13 @@
       </el-table-column>
       <el-table-column
         v-if="lists[2].ispass"
-        label="时间间隔(分钟)"
+        label="时间窗口"
         align="center"
-        :width="getWidth('period', 120)"
-        prop="period"
+        :width="getWidth('window_seconds', 120)"
+        prop="window_seconds"
       >
         <template slot-scope="scope">
-          <span>{{ scope.row.period }}</span>
+          <span>{{ scope.row.window_seconds | marketWindow }}</span>
         </template>
       </el-table-column>
       <el-table-column
@@ -432,6 +432,12 @@ import { buildPlatformTradeUrl } from "@/utils/platform";
 import { restartInterval, stopInterval } from "@/utils/interval";
 import { createLatestRequestGuard } from "@/utils/latestRequest";
 import {
+  formatMarketChangeWindow,
+  isMarketChangeWindowResponseValid,
+  MARKET_CHANGE_WINDOW_SECONDS,
+  normalizeMarketChangeWindowSeconds,
+} from "@/utils/marketChangeWindow";
+import {
   getMarketVolumeFilterPayload,
   MARKET_VOLUME_QUICK_OPTIONS,
   restoreMarketVolumeFilter,
@@ -460,6 +466,9 @@ const diffList = [
 
 export default {
   filters: {
+    marketWindow(value) {
+      return formatMarketChangeWindow(value);
+    },
     toFloat(val) {
       if (val) return parseNumber(val);
       return val;
@@ -475,6 +484,18 @@ export default {
   },
   components: {
     MarketVolumeCell,
+  },
+  props: {
+    windowSeconds: {
+      type: Number,
+      default: MARKET_CHANGE_WINDOW_SECONDS.LONG,
+      validator(value) {
+        return (
+          value === MARKET_CHANGE_WINDOW_SECONDS.SHORT ||
+          value === MARKET_CHANGE_WINDOW_SECONDS.LONG
+        );
+      },
+    },
   },
   data() {
     return {
@@ -494,8 +515,8 @@ export default {
           ispass: true,
         },
         {
-          key: "period",
-          label: "时间间隔(分钟)",
+          key: "window_seconds",
+          label: "时间窗口",
           ispass: false,
         },
         {
@@ -534,6 +555,7 @@ export default {
         // block_symbol_temp: [],
         // platform_temp: [],
         block_id_temp: [],
+        window_seconds: MARKET_CHANGE_WINDOW_SECONDS.LONG,
       },
       diffList: diffList,
       volumeQuickOptions: MARKET_VOLUME_QUICK_OPTIONS,
@@ -556,8 +578,16 @@ export default {
       }
     },
   },
+  watch: {
+    windowSeconds(value) {
+      this.changeWindowSeconds(value);
+    },
+  },
   created() {
     this.topicsRequestGuard = createLatestRequestGuard();
+    this.query.window_seconds = normalizeMarketChangeWindowSeconds(
+      this.windowSeconds
+    );
     this.initPlatform();
     // this.initSymbols()
     this.initFilter();
@@ -605,10 +635,24 @@ export default {
     },
     async getTopics() {
       const requestToken = this.topicsRequestGuard.begin();
+      const requestedWindowSeconds = normalizeMarketChangeWindowSeconds(
+        this.query.window_seconds
+      );
+      const requestQuery = Object.assign({}, this.query, {
+        window_seconds: requestedWindowSeconds,
+      });
       this.loading = true;
       let res;
       try {
-        res = await getMarketChange(this.query);
+        res = await getMarketChange(requestQuery);
+        if (
+          !isMarketChangeWindowResponseValid(
+            res && res.data,
+            requestedWindowSeconds
+          )
+        ) {
+          throw new Error("极端行情响应时间窗口与请求不一致");
+        }
       } catch (error) {
         if (this.topicsRequestGuard.isCurrent(requestToken)) {
           this.list = {
@@ -624,6 +668,12 @@ export default {
         return;
       }
       if (!this.topicsRequestGuard.isCurrent(requestToken)) return;
+      if (
+        normalizeMarketChangeWindowSeconds(this.windowSeconds) !==
+        requestedWindowSeconds
+      ) {
+        return;
+      }
       this.list = res.data;
       this.dataUnavailable = false;
       if (this.topicsRequestGuard.isCurrent(requestToken)) {
@@ -631,6 +681,16 @@ export default {
       }
     },
     retryTopics() {
+      return this.getTopics();
+    },
+    changeWindowSeconds(value) {
+      const windowSeconds = normalizeMarketChangeWindowSeconds(value);
+      if (this.query.window_seconds === windowSeconds) return;
+
+      this.query.window_seconds = windowSeconds;
+      this.query.page = 1;
+      this.list = { data: [], current_page: 1, total: 0 };
+      this.dataUnavailable = false;
       return this.getTopics();
     },
     async initSymbols() {

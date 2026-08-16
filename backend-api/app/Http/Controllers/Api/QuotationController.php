@@ -281,7 +281,8 @@ class QuotationController extends Controller
         $user_data=DB::table('users')->where('id',$user_id)->first();
 
         $list = MarketChange::join('currency_match','currency_match.id','=','market_change.match_id')
-            ->where('currency_match.is_enabled',1);
+            ->where('currency_match.is_enabled',1)
+            ->where('market_change.period', 5);
         if($symbol){
             $list = $list->where(
                 'market_change.symbol',

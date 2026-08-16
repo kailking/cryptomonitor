@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\MarketChangeDataSource;
+use App\Services\MarketChangePaginator;
 use App\Services\MarketChangeResponseFormatter;
 use App\Services\MarketChangeRedisGenerationService;
 use App\Services\MarketChangeSymbolNormalizer;
@@ -36,6 +37,8 @@ class MarketChangeDataSourceContractTest extends TestCase
         $this->assertSame('BTC/USDT', $row['symbol']);
         $this->assertSame(2, $row['platform']);
         $this->assertSame(5, $row['period']);
+        $this->assertSame(300, $row['window_seconds']);
+        $this->assertSame('5分钟', $row['window_text']);
         $this->assertSame(1, $row['direction']);
         $this->assertSame('1.2346', $row['change']);
         $this->assertSame('0.000000000000000001', $row['price_begin']);
@@ -45,6 +48,32 @@ class MarketChangeDataSourceContractTest extends TestCase
         $this->assertFalse($row['volume_available']);
         $this->assertNull($row['volume_24h_usdt']);
         $this->assertNull($row['volume_updated_at_ms']);
+    }
+
+    public function test_30_second_row_keeps_the_same_id_and_legacy_period(): void
+    {
+        $row = (new MarketChangeResponseFormatter())->format([
+            'id' => '1000000001',
+            'match_id' => '88',
+            'symbol' => 'BTCUSDT',
+            'platform' => '2',
+            'period' => '5',
+            'window_seconds' => '30',
+            'direction' => '1',
+            'change' => 1.2,
+            'price_begin' => '0.000000000250000000',
+            'price_end' => '0.000000000260000000',
+            'created_at' => '2026-08-13 08:00:00',
+            'updated_at' => '2026-08-13 08:00:01',
+            'currency_name' => 'BTC',
+            'quote_name' => 'USDT',
+        ]);
+
+        $this->assertSame(1000000001, $row['id']);
+        $this->assertSame(5, $row['period']);
+        $this->assertSame(30, $row['window_seconds']);
+        $this->assertSame('30秒', $row['window_text']);
+        $this->assertSame('0.00000000025', $row['price_begin']);
     }
 
     public function test_redis_prices_remove_float_noise_without_losing_tiny_values(): void
@@ -128,6 +157,135 @@ class MarketChangeDataSourceContractTest extends TestCase
 
         $this->assertSame(0, $result->total());
         $this->assertSame([], $result->items());
+    }
+
+    /**
+     * @dataProvider nonRedisSources
+     */
+    public function test_30_second_window_never_uses_mysql_or_shadow($configuredSource): void
+    {
+        config()->set('market_change.source', $configuredSource);
+        $source = new MarketChangeDataSource(
+            $this->createMock(MarketChangeRedisGenerationService::class),
+            new MarketChangeResponseFormatter(),
+            new MarketVolumeFreshness()
+        );
+        $request = Request::create('/api/market/change/list', 'GET', [
+            'direction' => 1,
+            'window_seconds' => 30,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('requires MARKET_CHANGE_SOURCE=redis');
+        $source->list($request, 123);
+    }
+
+    public function nonRedisSources(): array
+    {
+        return [
+            'mysql' => ['mysql'],
+            'shadow' => ['shadow'],
+        ];
+    }
+
+    public function test_invalid_window_is_rejected_before_selecting_a_data_source(): void
+    {
+        config()->set('market_change.source', 'redis');
+        $source = new MarketChangeDataSource(
+            $this->createMock(MarketChangeRedisGenerationService::class),
+            new MarketChangeResponseFormatter(),
+            new MarketVolumeFreshness()
+        );
+        $request = Request::create('/api/market/change/list', 'GET', [
+            'direction' => 1,
+            'window_seconds' => 10,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('window_seconds must be 30 or 300');
+        $source->list($request, 123);
+    }
+
+    /**
+     * @dataProvider nonScalarWindows
+     */
+    public function test_non_scalar_window_is_rejected_before_casting($window): void
+    {
+        config()->set('market_change.source', 'redis');
+        $source = new MarketChangeDataSource(
+            $this->createMock(MarketChangeRedisGenerationService::class),
+            new MarketChangeResponseFormatter(),
+            new MarketVolumeFreshness()
+        );
+        $request = Request::create('/api/market/change/list', 'GET', [
+            'direction' => 1,
+            'window_seconds' => $window,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('window_seconds must be 30 or 300');
+        $source->list($request, 123);
+    }
+
+    public function nonScalarWindows(): array
+    {
+        return [
+            'array query' => [['30']],
+            'nested array query' => [[['30']]],
+            'object query' => [(object) ['value' => '30']],
+            'null query' => [null],
+        ];
+    }
+
+    public function test_missing_window_defaults_to_300_and_explicit_30_is_preserved(): void
+    {
+        $reflection = new ReflectionClass(MarketChangeDataSource::class);
+        $source = $reflection->newInstanceWithoutConstructor();
+        $windowSeconds = $reflection->getMethod('windowSeconds');
+        $windowSeconds->setAccessible(true);
+
+        $this->assertSame(300, $windowSeconds->invoke(
+            $source,
+            Request::create('/api/market/change/list', 'GET')
+        ));
+        $this->assertSame(30, $windowSeconds->invoke(
+            $source,
+            Request::create('/api/market/change/list', 'GET', ['window_seconds' => 30])
+        ));
+    }
+
+    /**
+     * @dataProvider supportedWindows
+     */
+    public function test_empty_serialized_paginator_always_exposes_its_window(
+        $windowSeconds,
+        $windowText
+    ): void
+    {
+        $paginator = new MarketChangePaginator(
+            collect([]),
+            0,
+            50,
+            1,
+            $windowSeconds,
+            ['path' => 'http://localhost/api/market/change/list', 'pageName' => 'page']
+        );
+        $serialized = json_decode($paginator->toJson(), true);
+
+        $this->assertSame($windowSeconds, $serialized['window_seconds']);
+        $this->assertSame($windowText, $serialized['window_text']);
+        $this->assertSame([], $serialized['data']);
+        $this->assertSame(0, $serialized['total']);
+        $this->assertSame(50, $serialized['per_page']);
+        $this->assertSame(1, $serialized['current_page']);
+    }
+
+    public function supportedWindows(): array
+    {
+        return [
+            '30 seconds' => [30, '30秒'],
+            '5 minutes' => [300, '5分钟'],
+        ];
     }
 
     public function test_one_hundred_percent_shadow_sampling_is_still_limited_once_per_minute(): void

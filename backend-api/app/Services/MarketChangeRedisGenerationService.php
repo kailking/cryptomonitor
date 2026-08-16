@@ -20,10 +20,21 @@ class MarketChangeRedisGenerationService
      * Read exactly one immutable generation. If that generation expires while
      * it is being read, the request fails and never follows a newer pointer.
      */
-    public function readPage($direction, array $filters, $page, $pageSize)
+    public function readPage($direction, array $filters, $page, $pageSize, $windowSeconds = 300)
     {
+        $windowSeconds = (int) $windowSeconds;
+        if (!in_array($windowSeconds, [30, 300], true)) {
+            throw new \InvalidArgumentException('window_seconds must be 30 or 300.');
+        }
+
         try {
-            return $this->readPageFromGeneration($direction, $filters, $page, $pageSize);
+            return $this->readPageFromGeneration(
+                $direction,
+                $filters,
+                $page,
+                $pageSize,
+                $windowSeconds
+            );
         } catch (MarketChangeRedisUnavailableException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -31,10 +42,10 @@ class MarketChangeRedisGenerationService
         }
     }
 
-    private function readPageFromGeneration($direction, array $filters, $page, $pageSize)
+    private function readPageFromGeneration($direction, array $filters, $page, $pageSize, $windowSeconds)
     {
         $directionKey = (int) $direction === 2 ? 'down' : 'up';
-        $prefix = rtrim((string) config('market_change.redis_prefix', 'v2:market_change'), ':');
+        $prefix = $this->prefixForWindow($windowSeconds);
         $redis = $this->redis();
 
         $generation = $redis->get($prefix.':current_generation');
@@ -49,7 +60,13 @@ class MarketChangeRedisGenerationService
         $meta = $this->decodeObject($metaRaw, 'generation meta');
         $index = $this->decodeObject($indexRaw, 'direction index');
 
-        $this->validateEnvelope($meta, $generation, 'generation meta', true);
+        $this->validateEnvelope(
+            $meta,
+            $generation,
+            'generation meta',
+            true,
+            $windowSeconds
+        );
         $this->validateEnvelope($index, $generation, 'direction index');
         if ((int) $meta['generated_at_ms'] !== (int) $index['generated_at_ms']) {
             throw $this->unavailable('generation meta and direction index timestamps do not match');
@@ -125,12 +142,14 @@ class MarketChangeRedisGenerationService
             $dataKey,
             $pagedIndex,
             (int) $direction,
+            $windowSeconds,
             isset($filters['min_volume_24h_usdt']) ? $filters['min_volume_24h_usdt'] : null
         );
 
         return [
             'generation' => $generation,
             'generated_at_ms' => (int) $meta['generated_at_ms'],
+            'window_seconds' => $windowSeconds,
             'items' => $items,
             'total' => $total,
         ];
@@ -147,7 +166,38 @@ class MarketChangeRedisGenerationService
         return $this->redis;
     }
 
-    private function validateEnvelope(array $payload, $generation, $label, $requireDeclaredMaxAge = false)
+    private function prefixForWindow($windowSeconds)
+    {
+        $legacyPrefix = (string) config('market_change.redis_prefix', 'v2:market_change');
+        $thirtySecondPrefix = (string) config(
+            'market_change.redis_prefix_30s',
+            'v2:market_change:30s'
+        );
+
+        foreach ([$legacyPrefix, $thirtySecondPrefix] as $prefix) {
+            if ($prefix === ''
+                || trim($prefix) !== $prefix
+                || strlen($prefix) > 96
+                || preg_match('/^[A-Za-z0-9][A-Za-z0-9:_-]*$/D', $prefix) !== 1
+                || strpos($prefix, '::') !== false
+                || substr($prefix, -1) === ':') {
+                throw $this->unavailable('configured Redis prefix is invalid');
+            }
+        }
+        if ($legacyPrefix === $thirtySecondPrefix) {
+            throw $this->unavailable('30-second and 5-minute Redis prefixes must be different');
+        }
+
+        return (int) $windowSeconds === 30 ? $thirtySecondPrefix : $legacyPrefix;
+    }
+
+    private function validateEnvelope(
+        array $payload,
+        $generation,
+        $label,
+        $requireDeclaredMaxAge = false,
+        $expectedWindowSeconds = null
+    )
     {
         $expectedSchema = (int) config('market_change.redis_schema_version', 2);
         if (!isset($payload['schema_version']) || (int) $payload['schema_version'] !== $expectedSchema) {
@@ -170,6 +220,12 @@ class MarketChangeRedisGenerationService
                 || (int) $payload['api_max_age_seconds'] < 1)) {
             throw $this->unavailable($label.' api_max_age_seconds is invalid');
         }
+        if ($expectedWindowSeconds !== null
+            && (!isset($payload['window_seconds'])
+                || !$this->isIntegerLike($payload['window_seconds'])
+                || (int) $payload['window_seconds'] !== (int) $expectedWindowSeconds)) {
+            throw $this->unavailable($label.' window_seconds does not match the requested window');
+        }
 
         $generatedAtMs = (int) $payload['generated_at_ms'];
         $nowMs = (int) floor(microtime(true) * 1000);
@@ -187,7 +243,14 @@ class MarketChangeRedisGenerationService
         }
     }
 
-    private function readDetails($redis, $hashKey, array $indexItems, $direction, $minVolumeThreshold = null)
+    private function readDetails(
+        $redis,
+        $hashKey,
+        array $indexItems,
+        $direction,
+        $windowSeconds,
+        $minVolumeThreshold = null
+    )
     {
         $ids = array_column($indexItems, 'id');
         if (empty($ids)) {
@@ -220,7 +283,7 @@ class MarketChangeRedisGenerationService
                 throw $this->unavailable('generation detail is incomplete for ID '.$id);
             }
             $detail = $this->decodeObject($rawById[$id], 'generation detail');
-            $normalized = $this->normalizeDetail($detail, $id);
+            $normalized = $this->normalizeDetail($detail, $id, $windowSeconds);
             $indexItem = $indexById[$id];
             if ($normalized['direction'] !== $direction
                 || $normalized['match_id'] !== $indexItem['match_id']
@@ -278,13 +341,14 @@ class MarketChangeRedisGenerationService
         ], $this->volumeFreshness->extreme($item));
     }
 
-    private function normalizeDetail(array $detail, $indexId)
+    private function normalizeDetail(array $detail, $indexId, $windowSeconds)
     {
         $id = $this->value($detail, ['i', 'id']);
         $matchId = $this->value($detail, ['m', 'match_id']);
         $symbol = $this->value($detail, ['s', 'symbol']);
         $platform = $this->value($detail, ['p', 'platform']);
         $period = $this->value($detail, ['pd', 'period']);
+        $periodSeconds = $this->value($detail, ['ps', 'window_seconds']);
         $direction = $this->value($detail, ['dr', 'direction']);
         $change = $this->value($detail, ['c', 'change']);
         $priceBegin = $this->value($detail, ['pb', 'price_begin']);
@@ -294,7 +358,7 @@ class MarketChangeRedisGenerationService
         $createdAt = $this->value($detail, ['ca', 'created_at']);
         $updatedAt = $this->value($detail, ['ua', 'updated_at', 't']);
 
-        foreach ([$id, $matchId, $platform, $period, $direction] as $number) {
+        foreach ([$id, $matchId, $platform, $period, $periodSeconds, $direction] as $number) {
             if (!$this->isIntegerLike($number)) {
                 throw $this->unavailable('generation detail contains an invalid integer');
             }
@@ -309,6 +373,9 @@ class MarketChangeRedisGenerationService
         }
         if (!in_array((int) $direction, [1, 2], true) || (int) $period !== 5) {
             throw $this->unavailable('generation detail direction or period is invalid');
+        }
+        if ((int) $periodSeconds !== (int) $windowSeconds) {
+            throw $this->unavailable('generation detail window_seconds does not match the requested window');
         }
         if (!is_string($symbol) || $symbol === '' || !is_string($currencyName) || !is_string($quoteName)) {
             throw $this->unavailable('generation detail market metadata is invalid');
@@ -327,6 +394,7 @@ class MarketChangeRedisGenerationService
             'platform' => (int) $platform,
             // Redis and the legacy market_change API both expose minutes.
             'period' => (int) $period,
+            'window_seconds' => (int) $periodSeconds,
             'direction' => (int) $direction,
             'change' => (float) $change,
             'price_begin' => (string) $priceBegin,

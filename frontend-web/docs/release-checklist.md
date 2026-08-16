@@ -21,6 +21,13 @@
       action permissions for representative users, quotation profit/address
       visibility, polling, navigation, K-line dialog cleanup, and browser console
       checks.
+- [ ] On the extreme-market page, confirm the single `30秒 / 5分钟` selector
+      switches both rankings together, defaults to `5分钟`, resets both sides to
+      page 1 without clearing other filters, and remains independent from each
+      side's auto-refresh interval.
+- [ ] Confirm every displayed extreme-market row reports the selected time window;
+      a mismatched or unavailable Redis window must clear stale rows and show the
+      manual-retry state instead of mixing 30-second and 5-minute data.
 - [ ] After acceptance, copy the exact same artifact bytes covered by the saved
       hash manifest to `/web/`. Do not rebuild between `/nweweb/` and `/web/`.
 - [ ] Recompute the deployed hashes for `/web/` and verify they match both the

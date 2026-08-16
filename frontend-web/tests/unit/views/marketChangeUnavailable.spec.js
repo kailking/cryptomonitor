@@ -85,7 +85,12 @@ describe.each(pages)("$name market change fail-closed state", ({ component }) =>
 
   test("successful manual retry clears the unavailable state", async () => {
     const vm = context(component);
-    const page = { data: [{ id: 10 }], current_page: 1, total: 1 };
+    const page = {
+      window_seconds: 300,
+      data: [{ id: 10, window_seconds: 300 }],
+      current_page: 1,
+      total: 1,
+    };
     vm.dataUnavailable = true;
     mockGetMarketChange.mockResolvedValueOnce({ data: page });
 
@@ -100,7 +105,12 @@ describe.each(pages)("$name market change fail-closed state", ({ component }) =>
     const vm = context(component);
     const older = deferred();
     const newer = deferred();
-    const page = { data: [{ id: 11 }], current_page: 1, total: 1 };
+    const page = {
+      window_seconds: 300,
+      data: [{ id: 11, window_seconds: 300 }],
+      current_page: 1,
+      total: 1,
+    };
     vm.refresh_button = 1;
     mockGetMarketChange
       .mockReturnValueOnce(older.promise)

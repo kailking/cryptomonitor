@@ -49,4 +49,6 @@ market_volume:v1:platform:{platform_id}:usdt  (Hash)
 
 极端行情由关联的 Go `market_change_to_redis_v2` 服务计算。每条 MySQL `market_depth` 规则在运行时读取 Redis DB 3 的买盘 `_1` 和卖盘 `_2` 五档：买一取全部有效 bids 的最高价，卖一取全部有效 asks 的最低价，中间价为两者平均；环形槽只保存买一和卖一，中间价与点差按需派生。当前或五分钟前点差超过默认 2% 时拒绝计算；上涨要求中间价和买一达到阈值且卖一同向，下跌要求中间价和卖一达到阈值且买一同向，默认取得 `t0/t1/t2` 三个连续逐秒样本后在第三帧上榜，同秒不重复计数，间隔超过 1 秒重置。确认样本数大于 1 时，轮询间隔必须小于或等于 1000 毫秒。已上榜行情换向时旧方向立即撤榜，新方向完成同样确认后再发布，不会同时出现在两个榜单。
 
+同一个 Go 进程现在对一次 DB3 深度读取同时计算 5 分钟和 30 秒两个独立窗口。5 分钟继续发布到 `v2:market_change`，30 秒发布到 `v2:market_change:30s`；两边各自预热、发布 generation 和按 TTL 失效，接口用 `window_seconds=300|30` 明确选择，缺省仍为 5 分钟且禁止跨窗口回退。MySQL 身份继续固定使用既有 `market_change(symbol, platform, period=5)`：任一窗口首次真实触发时只 `INSERT IGNORE` 一次，之后不高频更新；两个窗口共用同一个 `market_change.id`，因此用户隐藏或恢复一条记录会同时作用于 5 分钟和 30 秒榜单。该扩展不新增表、migration 或 backfill。
+
 本次中间价优化不修改 Redis generation、backend-api 或 frontend-web 的字段契约，`change/price_begin/price_end` 改为表达中间价变化。无需 SQL、migration 或 backfill；新规则仍只在首次真实触发时向现有 `market_change` 插入一条身份记录，后续不高频更新 MySQL。DB3 读取 Key 数约翻倍；行情环形槽从一个价格扩为买一和卖一（中间价按需派生），槽本体约增加 50%，进程预算先由至少 200 MB 提到至少 300 MB，并在生产复核实际内存、GC 和循环耗时。

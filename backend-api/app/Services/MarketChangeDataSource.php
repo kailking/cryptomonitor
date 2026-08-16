@@ -32,9 +32,15 @@ class MarketChangeDataSource
 
     public function list(Request $request, $userId)
     {
+        $windowSeconds = $this->windowSeconds($request);
         $source = $this->source();
+        if ($windowSeconds !== 300 && $source !== 'redis') {
+            throw new InvalidArgumentException(
+                'window_seconds=30 requires MARKET_CHANGE_SOURCE=redis.'
+            );
+        }
         if ($source === 'redis') {
-            return $this->redisList($request, $userId);
+            return $this->redisList($request, $userId, $windowSeconds);
         }
 
         $legacy = $this->mysqlList($request, $userId);
@@ -47,6 +53,11 @@ class MarketChangeDataSource
 
     public function mysqlList(Request $request, $userId)
     {
+        if ($this->windowSeconds($request) !== 300) {
+            throw new InvalidArgumentException(
+                'MySQL extreme-market data only supports window_seconds=300.'
+            );
+        }
         $page = max(1, (int) ($request->get('page') ?: 1));
         $pageSize = $this->pageSize($request);
         $direction = (int) $request->get('direction');
@@ -64,6 +75,7 @@ class MarketChangeDataSource
 
         $list = MarketChange::join('currency_match', 'currency_match.id', '=', 'market_change.match_id')
             ->where('currency_match.is_enabled', 1)
+            ->where('market_change.period', 5)
             ->whereBetween('market_change.change', [0, 2000])
             ->where('market_change.updated_at', '>', date('Y-m-d H:i:s', strtotime('-2 min')))
             ->whereNotExists(function ($query) use ($userId) {
@@ -104,6 +116,8 @@ class MarketChangeDataSource
         $unavailableVolume = $this->volumeFreshness->unavailableExtreme();
         $items->each(function ($item) use ($unavailableVolume) {
             $item->symbol = $item->currency_name.'/'.$item->quote_name;
+            $item->window_seconds = 300;
+            $item->window_text = '5分钟';
             $item->append(['platform_text']);
             foreach ($unavailableVolume as $field => $value) {
                 $item->{$field} = $value;
@@ -112,11 +126,14 @@ class MarketChangeDataSource
         });
         $paginator->setCollection($items);
 
-        return $paginator;
+        return $this->withWindowMetadata($paginator, $request, 300);
     }
 
-    public function redisList(Request $request, $userId)
+    public function redisList(Request $request, $userId, $windowSeconds = null)
     {
+        $windowSeconds = $windowSeconds === null
+            ? $this->windowSeconds($request)
+            : (int) $windowSeconds;
         $page = max(1, (int) ($request->get('page') ?: 1));
         $pageSize = $this->pageSize($request);
         $direction = (int) $request->get('direction');
@@ -146,18 +163,19 @@ class MarketChangeDataSource
             'min_volume_24h_usdt' => $this->volumeFreshness->threshold(
                 $request->get('min_volume_24h_usdt')
             ),
-        ], $page, $pageSize);
+        ], $page, $pageSize, $windowSeconds);
 
         $rows = [];
         foreach ($snapshot['items'] as $item) {
             $rows[] = $this->responseFormatter->format($item);
         }
 
-        return new LengthAwarePaginator(
+        return new MarketChangePaginator(
             collect($rows),
             (int) $snapshot['total'],
             $pageSize,
             $page,
+            $windowSeconds,
             [
                 'path' => $request->url(),
                 'query' => $request->query(),
@@ -175,6 +193,7 @@ class MarketChangeDataSource
             Log::info('market_change_shadow_compare', [
                 'user_id' => (int) $userId,
                 'direction' => (int) $request->get('direction'),
+                'window_seconds' => $this->windowSeconds($request),
                 'mysql_total' => $legacy->total(),
                 'redis_total' => $redis->total(),
                 'page_ids_equal' => $legacyIds === $redisIds,
@@ -187,6 +206,7 @@ class MarketChangeDataSource
             Log::warning('market_change_shadow_unavailable', [
                 'user_id' => (int) $userId,
                 'direction' => (int) $request->get('direction'),
+                'window_seconds' => $this->windowSeconds($request),
                 'reason' => $e->getMessage(),
             ]);
         }
@@ -224,6 +244,7 @@ class MarketChangeDataSource
             'change' => $request->get('change'),
             'block_id_temp' => $request->get('block_id_temp'),
             'min_volume_24h_usdt' => $request->get('min_volume_24h_usdt'),
+            'window_seconds' => $this->windowSeconds($request),
         ]));
         $seenKey = $userId.'|'.$minute.'|'.$filterFingerprint;
         if (isset(self::$shadowLastSeen[$seenKey])) {
@@ -254,6 +275,25 @@ class MarketChangeDataSource
         return min(200, max(1, (int) ($request->get('page_size') ?: 50)));
     }
 
+    private function windowSeconds(Request $request)
+    {
+        if (!$request->query->has('window_seconds')) {
+            return 300;
+        }
+
+        $rawWindow = $request->query->get('window_seconds');
+        if (!is_int($rawWindow) && !is_string($rawWindow)) {
+            throw new InvalidArgumentException('window_seconds must be 30 or 300.');
+        }
+
+        $window = (string) $rawWindow;
+        if ($window !== '30' && $window !== '300') {
+            throw new InvalidArgumentException('window_seconds must be 30 or 300.');
+        }
+
+        return (int) $window;
+    }
+
     private function integerList($value)
     {
         if ($value === null || $value === '') {
@@ -279,11 +319,32 @@ class MarketChangeDataSource
 
     private function emptyPaginator(Request $request, $page, $pageSize)
     {
-        return new LengthAwarePaginator(
+        return new MarketChangePaginator(
             collect([]),
             0,
             $pageSize,
             $page,
+            300,
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+                'pageName' => 'page',
+            ]
+        );
+    }
+
+    private function withWindowMetadata(
+        LengthAwarePaginator $paginator,
+        Request $request,
+        $windowSeconds
+    )
+    {
+        return new MarketChangePaginator(
+            $paginator->getCollection(),
+            $paginator->total(),
+            $paginator->perPage(),
+            $paginator->currentPage(),
+            $windowSeconds,
             [
                 'path' => $request->url(),
                 'query' => $request->query(),

@@ -43,6 +43,7 @@
         <env name="MARKET_CHANGE_SOURCE" value="mysql" force="true"/>
         <env name="MARKET_CHANGE_REDIS_DB" value="9" force="true"/>
         <env name="MARKET_CHANGE_REDIS_PREFIX" value="v2:market_change" force="true"/>
+        <env name="MARKET_CHANGE_REDIS_PREFIX_30S" value="v2:market_change:30s" force="true"/>
         <env name="MARKET_CHANGE_REDIS_MAX_AGE_SECONDS" value="5" force="true"/>
         <env name="MARKET_CHANGE_SHADOW_SAMPLE_PERCENT" value="10" force="true"/>
         <env name="MARKET_CHANGE_ERROR_LOG_INTERVAL_SECONDS" value="10" force="true"/>
