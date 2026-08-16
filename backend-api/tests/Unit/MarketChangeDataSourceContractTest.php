@@ -39,12 +39,42 @@ class MarketChangeDataSourceContractTest extends TestCase
         $this->assertSame(1, $row['direction']);
         $this->assertSame('1.2346', $row['change']);
         $this->assertSame('0.000000000000000001', $row['price_begin']);
-        $this->assertSame('12.345678901234567890', $row['price_end']);
+        $this->assertSame('12.3456789012346', $row['price_end']);
         $this->assertIsString($row['created_at']);
         $this->assertIsString($row['updated_at']);
         $this->assertFalse($row['volume_available']);
         $this->assertNull($row['volume_24h_usdt']);
         $this->assertNull($row['volume_updated_at_ms']);
+    }
+
+    public function test_redis_prices_remove_float_noise_without_losing_tiny_values(): void
+    {
+        $base = [
+            'id' => '1', 'match_id' => '88', 'symbol' => 'BTCUSDT',
+            'platform' => '2', 'period' => '5', 'direction' => '1',
+            'change' => 1, 'created_at' => '2026-08-13 08:00:00',
+            'updated_at' => '2026-08-13 08:00:01',
+            'currency_name' => 'BTC', 'quote_name' => 'USDT',
+        ];
+
+        $cases = [
+            ['0.868810000000000001', '0.041749999999999995', '0.86881', '0.04175'],
+            ['0.007813500000000001', '0.028005000000000002', '0.0078135', '0.028005'],
+            ['0.000000000250000000', '0.000000000000000001', '0.00000000025', '0.000000000000000001'],
+            ['0.000000000249999999', '0.123456789012345000', '0.000000000249999999', '0.123456789012345'],
+            ['0.999999999999999999', '999999999999999999.000000000000000000', '1', '1000000000000000000'],
+            ['100.000000000000000000', '0.000000000000000000', '100', '0'],
+        ];
+
+        $formatter = new MarketChangeResponseFormatter();
+        foreach ($cases as $case) {
+            $row = $formatter->format(array_merge($base, [
+                'price_begin' => $case[0],
+                'price_end' => $case[1],
+            ]));
+            $this->assertSame($case[2], $row['price_begin']);
+            $this->assertSame($case[3], $row['price_end']);
+        }
     }
 
     public function test_redis_row_exposes_only_fresh_volume(): void

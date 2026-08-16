@@ -102,6 +102,46 @@
 
 ## 4. 部署记录
 
+### 2026-08-16 / CM-20260816-EXTREME-PRICE-PRECISION / 极端行情价格精度规范化
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 开发中（本地实现与定向测试完成，生产页面待部署验证） |
+| 计划日期与窗口 | 待定，Asia/Shanghai |
+| 实际开始/结束时间 | 待执行 |
+| 环境 | 本地开发；目标为生产 backend-api |
+| 变更目标 | 清除 Go float64 固定 18 位输出中的无意义尾差，同时保留极小价格的全部有效前导零和非零数字 |
+| cryptomonitor 提交 | 本记录所在提交 |
+| go_project 提交 | 无，本次不修改 Go |
+| 服务器目标 | `/www/wwwroot/bishujucoin.com` |
+| SQL / 数据迁移 | 无 |
+| 环境变量 | 无 |
+| 进程变更 | 无常驻进程变更；若生产启用 OPcache，部署后按现网方式平滑 reload 对应 PHP-FPM |
+
+#### 契约与文件清单
+
+- Redis generation 内部仍严格接收非负、固定 18 位小数字符串；只在 API 响应格式化阶段输出规范化的纯小数字符串。
+- 不将价格转换为 PHP float，不使用固定小数位截断。按 float64 可可靠表达的 15 位有效数字做字符串舍入，再移除无意义尾零。
+- `0.868810000000000001` 输出 `0.86881`，`0.041749999999999995` 输出 `0.04175`。
+- `0.00000000025`、`0.000000000000000001` 保持非零且不使用科学计数法。
+- 返回字段名和 JSON 类型不变：`price_begin`、`price_end` 仍为字符串；前端无需重新构建。
+
+| 本仓库路径 | 服务器目标/用途 | SHA-256 | 操作 |
+|---|---|---|---|
+| `backend-api/app/Services/MarketChangeResponseFormatter.php` | `/www/wwwroot/bishujucoin.com/app/Services/MarketChangeResponseFormatter.php` | `44a74ceff089f034e9970190f0d8440f4e6226c74877c6d7fa4623458a2019af` | 上传；规范化 API 价格字符串 |
+| `backend-api/tests/Unit/MarketChangeDataSourceContractTest.php` | 测试环境同路径；生产运行不依赖 | `ef2609cb65f80ccc99f37bf351dff1831974235cba88da82187db67036d7db07` | 提交测试，不属于生产运行文件 |
+
+#### 验证、部署与回滚
+
+- 本地 PHP `7.2.34`：两个变更文件 `php -l` 通过。
+- `MarketChangeDataSourceContractTest`：`6 tests / 39 assertions` 通过。
+- `MarketChangeRedisGenerationServiceTest`：`11 tests / 27 assertions` 通过。
+- `MarketChangeControllerContractTest`：`1 test / 5 assertions` 通过；`git diff --check` 通过。
+- 生产部署后调用上涨、下跌两个 `/market/change/list` 接口，核对普通价格、连续 0/9 尾差、`0.00000000025` 和 `0.000000000000000001` 样本，再用已认证页面确认历史价/实时价不换行且数值一致。
+- 回滚只需恢复部署前的 `MarketChangeResponseFormatter.php`；无 SQL、环境变量、Redis 或 Go 回滚。
+
 ### 2026-08-15 / CM-20260815-MARKET-VOLUME-V1 / 24 小时 USDT 成交额采集、筛选与展示
 
 #### 基本信息
