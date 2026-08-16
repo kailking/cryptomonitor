@@ -114,7 +114,7 @@
 | 环境 | 本地开发；目标为生产 backend-api、frontend-web 与关联 Go 服务 |
 | 变更目标 | 在原 5 分钟极端行情之外增加独立 30 秒榜单；两个窗口共享筛选和用户隐藏 |
 | cryptomonitor 提交 | `91f0ad151e905aa6d792641fedb2443d4380a58d` |
-| go_project / tool_go 提交 | `a9f2a1080f19fa32e873a3625cf418592e9c7ad1` |
+| go_project / tool_go 提交 | `90a9c352dbfc0978744908c554824df5b52f8c2a` |
 | 服务器目标 | API `/www/wwwroot/bishujucoin.com`；前端按 `frontend-web/docs/release-checklist.md`；Go `/www/wwwroot/go_project/exchange_hub` |
 | SQL / 数据迁移 | 无；不新增表、字段、索引、migration 或 backfill |
 
