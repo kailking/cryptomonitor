@@ -132,6 +132,7 @@ class PermissionApiTest extends TestCase
                     'quotation.profit.view',
                     'quotation.extreme.view',
                     'quotation.extreme.config',
+                    'quotation.listing.view',
                 ],
                 [
                     'users.view',

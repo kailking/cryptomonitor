@@ -24,6 +24,13 @@ return [
             'depends_on' => ['quotation.extreme.view'],
             'sensitive' => true,
         ],
+        'quotation.listing.view' => [
+            'name' => '查看新币雷达',
+            'group' => 'quotation',
+            'type' => 'page',
+            'depends_on' => [],
+            'sensitive' => true,
+        ],
         'users.view' => [
             'name' => '查看用户',
             'group' => 'users',

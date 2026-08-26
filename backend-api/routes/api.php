@@ -64,6 +64,19 @@ Route::get('index/currency_price', 'Api\IndexController@currencyPrice');//首页
         ->middleware('check_permission:quotation.extreme.config');//监控配置
     Route::get('market/change/list', 'Api\QuotationController@changeList')
         ->middleware('check_permission:quotation.extreme.view');
+    Route::group([
+        'prefix' => 'spot-listings',
+        'middleware' => ['check_permission:quotation.listing.view'],
+    ], function () {
+        Route::get('/', 'Api\SpotListingController@index');
+        Route::get('operations', 'Api\SpotListingController@operations');
+        Route::get('announcements', 'Api\SpotListingController@announcements');
+        Route::get(
+            'announcements/{id}',
+            'Api\SpotListingController@showAnnouncement'
+        );
+        Route::get('{id}', 'Api\SpotListingController@show');
+    });
     Route::post('user/change/block_id', 'Api\UserController@updateChangeConfig')
         ->middleware('check_permission:quotation.extreme.view');//用户保存过滤条件
     Route::post('user/change/block_id/batch', 'Api\UserController@updateChangeConfigBatch')

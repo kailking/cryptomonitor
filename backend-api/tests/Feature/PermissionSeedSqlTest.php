@@ -91,6 +91,7 @@ class PermissionSeedSqlTest extends TestCase
                 ->whereIn('permission_code', [
                     'quotation.extreme.view',
                     'quotation.extreme.config',
+                    'quotation.listing.view',
                 ])
                 ->count()
         );
@@ -100,6 +101,7 @@ class PermissionSeedSqlTest extends TestCase
                 ->whereIn('permission_code', [
                     'quotation.extreme.view',
                     'quotation.extreme.config',
+                    'quotation.listing.view',
                 ])
                 ->count()
         );

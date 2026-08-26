@@ -95,6 +95,9 @@ describe('permission route filtering', () => {
     expect(
       findRoute(quotationRoute.children, 'change/config').meta.permissions
     ).toEqual(['quotation.extreme.config'])
+    expect(findRoute(quotationRoute.children, 'listings').meta.permissions).toEqual([
+      'quotation.listing.view'
+    ])
     expect(findRoute(userRoute.children, 'user_list').meta.permissions).toEqual([
       'users.view'
     ])
@@ -162,6 +165,19 @@ describe('permission route filtering', () => {
 
     expect(settingRoute.children.map(route => route.path)).toEqual(['diff_setting'])
     expect(hasPermission('settings.market.update', ['settings.market.view'])).toBe(false)
+  })
+
+  test('listing discovery grant exposes only the isolated radar page', () => {
+    const routes = filterAsyncRoutes(asyncRoutes, ['quotation.listing.view'])
+    const quotationRoute = findRoute(routes, '/quotation')
+
+    expect(quotationRoute.children.map(route => route.path)).toEqual([
+      'diff',
+      'diff_5',
+      'config',
+      'listings'
+    ])
+    expect(findRoute(quotationRoute.children, 'change')).toBeUndefined()
   })
 
   test('admin roles cannot bypass an empty permission list', async() => {

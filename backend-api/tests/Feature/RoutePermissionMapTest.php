@@ -32,6 +32,11 @@ class RoutePermissionMapTest extends TestCase
             ['POST', 'api/user/change/block_id', 'quotation.extreme.view'],
             ['GET', 'api/quotation/change/config', 'quotation.extreme.config'],
             ['POST', 'api/user/change/block_id/batch', 'quotation.extreme.config'],
+            ['GET', 'api/spot-listings', 'quotation.listing.view'],
+            ['GET', 'api/spot-listings/operations', 'quotation.listing.view'],
+            ['GET', 'api/spot-listings/announcements', 'quotation.listing.view'],
+            ['GET', 'api/spot-listings/announcements/{id}', 'quotation.listing.view'],
+            ['GET', 'api/spot-listings/{id}', 'quotation.listing.view'],
         ];
 
         foreach ($expected as list($method, $uri, $permission)) {
@@ -91,9 +96,9 @@ class RoutePermissionMapTest extends TestCase
     public function test_platform_restart_split_has_the_required_route_delta(): void
     {
         $this->assertCount(
-            67,
+            72,
             app('router')->getRoutes(),
-            'The baseline was 66 routes; splitting platform restart adds exactly one route.'
+            'The 67-route baseline plus five discovery-only routes must stay exact.'
         );
     }
 

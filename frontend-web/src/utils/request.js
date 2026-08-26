@@ -55,11 +55,13 @@ service.interceptors.response.use(
 
     // if the custom code is not 20000, it is judged as an error.
     if (res.code !== 200) {
-      Message({
-        message: res.message || "Error",
-        type: "error",
-        duration: 5 * 1000
-      });
+      if (safeGet(response.config, "silentError") !== true) {
+        Message({
+          message: res.message || "Error",
+          type: "error",
+          duration: 5 * 1000
+        });
+      }
 
       // 50008: Illegal token; 50012: Other clients logged in; 50014: Token expired;
       if (res.code === 50008 || res.code === 50012 || res.code === 50014) {
@@ -95,14 +97,16 @@ service.interceptors.response.use(
         ? errorMessageValue
         : "";
 
-    Message({
-      message:
-        status === 403
-          ? backendMessage || "当前账号无此操作权限"
-          : backendMessage || errorMessage || "网络错误",
-      type: "error",
-      duration: 5 * 1000
-    });
+    if (safeGet(safeGet(error, "config"), "silentError") !== true) {
+      Message({
+        message:
+          status === 403
+            ? backendMessage || "当前账号无此操作权限"
+            : backendMessage || errorMessage || "网络错误",
+        type: "error",
+        duration: 5 * 1000
+      });
+    }
     return Promise.reject(error);
   }
 );

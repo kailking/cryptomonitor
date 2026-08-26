@@ -220,6 +220,16 @@ export const asyncRoutes = [
         meta: { title: "监控配置", icon: "edit" }
       },
       {
+        path: "listings",
+        name: "新币雷达",
+        component: () => import("@/views/quotation/listings"),
+        meta: {
+          title: "新币雷达",
+          icon: "dashboard",
+          permissions: ["quotation.listing.view"]
+        }
+      },
+      {
         path: "change",
         name: "极端行情",
         component: () => import("@/views/change/list"),
