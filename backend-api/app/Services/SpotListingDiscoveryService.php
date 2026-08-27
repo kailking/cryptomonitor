@@ -604,18 +604,46 @@ class SpotListingDiscoveryService
             ->orderByDesc('links.announcement_event_id')
             ->orderByDesc('links.confidence')
             ->orderBy('links.symbol');
-        if ($this->tableAvailable('spot_listing_instruments')) {
+        $hasInstruments = $this->tableAvailable('spot_listing_instruments');
+        $hasMarketStates = $this->tableAvailable('spot_listing_market_states');
+        if ($hasInstruments) {
             $query->leftJoin(
                 'spot_listing_instruments AS linked_instruments',
                 'linked_instruments.id',
                 '=',
                 'links.instrument_id'
-            )->select([
-                'links.*',
-                'linked_instruments.exchange_status',
-            ]);
-        } else {
-            $query->select('links.*');
+            );
+        }
+        if ($hasMarketStates) {
+            $query->leftJoin(
+                'spot_listing_market_states AS linked_market_states',
+                function ($join): void {
+                    $join->on(
+                        'linked_market_states.platform_id',
+                        '=',
+                        'links.platform_id'
+                    )->on(
+                        'linked_market_states.symbol',
+                        '=',
+                        'links.symbol'
+                    )->where('linked_market_states.is_present', '=', 1);
+                }
+            );
+        }
+        $query->select('links.*');
+        if ($hasMarketStates && $hasInstruments) {
+            $query->addSelect(DB::raw(
+                'COALESCE(linked_market_states.exchange_status, '.
+                'linked_instruments.exchange_status) AS exchange_status'
+            ));
+        } elseif ($hasMarketStates) {
+            $query->addSelect(
+                'linked_market_states.exchange_status AS exchange_status'
+            );
+        } elseif ($hasInstruments) {
+            $query->addSelect(
+                'linked_instruments.exchange_status AS exchange_status'
+            );
         }
         if ($rowLimit !== null) {
             $query->limit($rowLimit + count($ids));

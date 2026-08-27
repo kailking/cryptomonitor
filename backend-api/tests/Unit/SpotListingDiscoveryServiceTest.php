@@ -343,6 +343,117 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $this->assertSame('opening', $result['operations'][1]['operation_group']);
     }
 
+    public function test_exact_announcement_link_uses_present_market_state_without_instrument(): void
+    {
+        $announcementId = $this->insertAnnouncement(3, 'okx-dos', [
+            'title' => 'OKX will list DOS/USDT',
+            'detected_at_ms' => self::NOW_MS - 3600000,
+            'published_at_ms' => self::NOW_MS - (14 * 86400000),
+        ]);
+        $plannedStart = self::NOW_MS - (14 * 86400000);
+        $this->insertCandidate($announcementId, 1, 'DOSUSDT', $plannedStart);
+        DB::table('spot_listing_market_states')->insert([
+            'platform_id' => 3,
+            'symbol' => 'DOSUSDT',
+            'exchange_symbol' => 'DOS-USDT',
+            'base_currency' => 'DOS',
+            'quote_currency' => 'USDT',
+            'exchange_status' => 'trading',
+            'trading_start_at_ms' => $plannedStart,
+            'observed_at_ms' => self::NOW_MS - 1000,
+            'source_hash' => str_repeat('d', 64),
+            'revision' => 0,
+            'is_present' => 1,
+        ]);
+        DB::table('spot_listing_announcement_links')->insert([
+            'announcement_event_id' => $announcementId,
+            'platform_id' => 3,
+            'symbol' => 'DOSUSDT',
+            'exchange_symbol' => 'DOS-USDT',
+            'instrument_id' => null,
+            'match_method' => 'exact_symbol',
+            'confidence' => 100,
+            'symbols_confirmed_at_ms' => self::NOW_MS - 1000,
+            'linked_at_ms' => self::NOW_MS - 1000,
+        ]);
+        $nextId = $this->insertInstrument(8, 'NEXTUSDT', [
+            'exchange_status' => 'pre_open',
+            'trading_start_at_ms' => self::NOW_MS + 3600000,
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operations = [];
+        foreach ($result['operations'] as $operation) {
+            $operations[$operation['operation_key']] = $operation;
+        }
+        $dosKey = 'announcement:'.$announcementId.':DOSUSDT';
+
+        $this->assertSame(
+            0,
+            DB::table('spot_listing_instruments')
+                ->where('platform_id', 3)
+                ->where('symbol', 'DOSUSDT')
+                ->count()
+        );
+        $this->assertSame('instrument:'.$nextId, $result['selected_operation_key']);
+        $this->assertNull($operations[$dosKey]['instrument_id']);
+        $this->assertSame('trading', $operations[$dosKey]['exchange_status']);
+        $this->assertSame('trading', $operations[$dosKey]['operation_group']);
+        $this->assertContains(
+            'exchange_trading',
+            array_column($operations[$dosKey]['lifecycle'], 'key')
+        );
+    }
+
+    public function test_announcement_link_ignores_absent_and_other_platform_market_states(): void
+    {
+        $announcementId = $this->insertAnnouncement(3, 'okx-ghost', [
+            'title' => 'OKX will list GHOST/USDT',
+            'detected_at_ms' => self::NOW_MS - 1000,
+        ]);
+        $plannedStart = self::NOW_MS - 60000;
+        $this->insertCandidate($announcementId, 1, 'GHOSTUSDT', $plannedStart);
+        foreach ([
+            ['platform_id' => 3, 'is_present' => 0],
+            ['platform_id' => 8, 'is_present' => 1],
+        ] as $market) {
+            DB::table('spot_listing_market_states')->insert([
+                'platform_id' => $market['platform_id'],
+                'symbol' => 'GHOSTUSDT',
+                'exchange_symbol' => 'GHOST-USDT',
+                'base_currency' => 'GHOST',
+                'quote_currency' => 'USDT',
+                'exchange_status' => 'trading',
+                'trading_start_at_ms' => $plannedStart,
+                'observed_at_ms' => self::NOW_MS - 500,
+                'source_hash' => str_repeat('e', 64),
+                'revision' => 0,
+                'is_present' => $market['is_present'],
+            ]);
+        }
+        DB::table('spot_listing_announcement_links')->insert([
+            'announcement_event_id' => $announcementId,
+            'platform_id' => 3,
+            'symbol' => 'GHOSTUSDT',
+            'exchange_symbol' => 'GHOST-USDT',
+            'instrument_id' => null,
+            'match_method' => 'exact_symbol',
+            'confidence' => 100,
+            'symbols_confirmed_at_ms' => self::NOW_MS - 500,
+            'linked_at_ms' => self::NOW_MS - 500,
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operation = $result['operations'][0];
+
+        $this->assertSame(
+            'announcement:'.$announcementId.':GHOSTUSDT',
+            $operation['operation_key']
+        );
+        $this->assertSame('unknown', $operation['exchange_status']);
+        $this->assertSame('opening', $operation['operation_group']);
+    }
+
     public function test_existing_table_with_incomplete_column_shape_is_not_reported_healthy(): void
     {
         Schema::drop('spot_listing_instruments');
