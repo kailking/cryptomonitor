@@ -321,6 +321,53 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $this->assertNotNull($this->service()->announcementDetail($newId));
     }
 
+    public function test_kucoin_category_noise_is_hidden_but_remains_auditable(): void
+    {
+        $noiseId = $this->insertAnnouncement(8, 'kucoin-copy-trading-noise', [
+            'title' =>
+                'KuCoin Copy Trading Upgrade: Now Supporting 630 Contract ' .
+                'Trading Pairs',
+            'description' =>
+                'KuCoin Copy Trading Upgrade: Now Supporting 630 Contract ' .
+                'Trading Pairs',
+            'published_at_ms' => self::NOW_MS - 1000,
+            'detected_at_ms' => self::NOW_MS - 900,
+            'announced_trading_start_at_ms' => self::NOW_MS + 3600000,
+        ]);
+        $unicodeListingId = $this->insertAnnouncement(
+            8,
+            'kucoin-unicode-listing',
+            [
+                'title' => '牛来 (牛来) Listed on KuCoin',
+                'description' =>
+                    'Trading: 09:00 on August 19, 2026 (UTC)',
+                'published_at_ms' => self::NOW_MS - 2000,
+                'detected_at_ms' => self::NOW_MS - 1900,
+            ]
+        );
+
+        $page = $this->service()->paginateAnnouncements([
+            'page' => 1,
+            'page_size' => 10,
+            'platform_id' => 8,
+        ]);
+
+        $this->assertSame(1, $page['total']);
+        $this->assertSame(
+            $unicodeListingId,
+            $page['data'][0]['id']
+        );
+        $this->assertSame(
+            '牛来 (牛来) 现已在 KuCoin 上线！',
+            $page['data'][0]['title']
+        );
+        $this->assertSame([], $page['data'][0]['pairs']);
+        $this->assertSame(
+            $noiseId,
+            $this->service()->announcementDetail($noiseId)['id']
+        );
+    }
+
     public function test_latest_untimed_notice_does_not_inherit_older_schedule(): void
     {
         $plannedStart = self::NOW_MS + 3600000;
@@ -1018,6 +1065,93 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $this->assertSame(
             ['mexc_assessment', 'mexc_innovation', 'mexc_meme_plus'],
             array_column($operation['listing_tags'], 'code')
+        );
+    }
+
+    public function test_unlinked_announcement_never_merges_into_same_symbol_instrument(): void
+    {
+        $plannedStart = self::NOW_MS - 60000;
+        $cases = [
+            [
+                'platform_id' => 5,
+                'symbol' => 'BONERUSDT',
+                'external_id' => 'mexc-boner-unlinked',
+                'title' => 'First in Market: BONER Now Live on MEXC Meme+',
+                'source_url' =>
+                    'https://www.mexc.com/announcements/article/boner',
+                'listing_channel' => 'mexc_meme_plus',
+                'listing_tags' => ['mexc_meme_plus'],
+            ],
+            [
+                'platform_id' => 8,
+                'symbol' => 'NOLINKUSDT',
+                'external_id' => 'kucoin-no-link',
+                'title' => 'No Link (NOLINK) Listed on KuCoin',
+                'source_url' =>
+                    'https://www.kucoin.com/announcement/no-link?lang=en_US',
+                'listing_channel' => 'standard',
+                'listing_tags' => [],
+            ],
+        ];
+
+        $expectedAnnouncementKeys = [];
+        foreach ($cases as $case) {
+            $this->insertInstrument(
+                $case['platform_id'],
+                $case['symbol'],
+                [
+                    'exchange_status' => 'disabled',
+                    'trading_start_at_ms' => $plannedStart,
+                ]
+            );
+            $announcementId = $this->insertAnnouncement(
+                $case['platform_id'],
+                $case['external_id'],
+                [
+                    'title' => $case['title'],
+                    'source_url' => $case['source_url'],
+                    'announcement_kind' => 'spot_usdt_explicit',
+                ]
+            );
+            $this->insertCandidate(
+                $announcementId,
+                1,
+                $case['symbol'],
+                $plannedStart,
+                [
+                    'payload_json' => json_encode([
+                        'schema_version' => 2,
+                        'product_scope' => 'cex_spot',
+                        'listing_channel' => $case['listing_channel'],
+                        'listing_tags' => $case['listing_tags'],
+                    ]),
+                ]
+            );
+            $expectedAnnouncementKeys[$case['symbol']] =
+                'announcement:'.$announcementId.':'.$case['symbol'];
+        }
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operations = collect($result['operations'])->keyBy('operation_key');
+
+        $this->assertSame(4, $result['total']);
+        foreach ($expectedAnnouncementKeys as $symbol => $operationKey) {
+            $this->assertArrayHasKey($operationKey, $operations);
+            $operation = $operations[$operationKey];
+            $this->assertNull($operation['instrument_id']);
+            $this->assertSame('unknown', $operation['exchange_status']);
+            $this->assertSame($plannedStart, $operation['planned_start_at_ms']);
+            $this->assertSame(
+                'announcement',
+                $operation['planned_start_source']
+            );
+            $this->assertSame('opening', $operation['operation_group']);
+        }
+        $this->assertSame(
+            'mexc_meme_plus',
+            $operations[$expectedAnnouncementKeys['BONERUSDT']][
+                'listing_channel'
+            ]
         );
     }
 

@@ -283,6 +283,7 @@ class SpotListingDiscoveryService
             ): array {
                 $query = DB::table('spot_listing_announcement_events');
                 $this->applyAnnouncementFilters($query, $filters);
+                $this->applyAnnouncementTaskVisibility($query);
                 $total = (int) (clone $query)->count();
                 $events = $query
                     ->orderByDesc('published_at_ms')
@@ -514,6 +515,7 @@ class SpotListingDiscoveryService
                         );
                 }, 'candidate_updated_at_ms')
                 ->whereIn('platform_id', self::PLATFORM_IDS);
+            $this->applyAnnouncementTaskVisibility($announcementQuery);
             if (isset($filters['platform_id']) && $filters['platform_id'] !== '') {
                 $announcementQuery->where(
                     'platform_id',
@@ -699,18 +701,28 @@ class SpotListingDiscoveryService
                         (int) $announcement['platform_id'],
                         (string) $pair['symbol']
                     );
-                    $hasInstrument = isset($instrumentKeys[$marketKey]);
+                    $instrumentOperationKey =
+                        $instrumentKeys[$marketKey] ?? null;
+                    $linkedInstrumentId = isset($pair['instrument_id'])
+                        ? (int) $pair['instrument_id']
+                        : 0;
+                    $hasInstrument = $instrumentOperationKey !== null
+                        && $linkedInstrumentId > 0
+                        && isset($operations[$instrumentOperationKey])
+                        && (int) $operations[$instrumentOperationKey][
+                            'instrument_id'
+                        ] === $linkedInstrumentId;
                     if (
                         $hasInstrument
                         && !$this->requiresAnnouncementOccurrence(
-                            $operations[$instrumentKeys[$marketKey]],
+                            $operations[$instrumentOperationKey],
                             $announcement,
                             $pair,
                             $now,
                             $futureBoundary
                         )
                     ) {
-                        $operationKey = $instrumentKeys[$marketKey];
+                        $operationKey = $instrumentOperationKey;
                         $operations[$operationKey] = $this->mergeAnnouncement(
                             $operations[$operationKey],
                             $announcement,
@@ -961,6 +973,53 @@ class SpotListingDiscoveryService
                 }
             });
         }
+    }
+
+    /**
+     * KuCoin's official `new-listings` feed also carries category noise such
+     * as Copy Trading upgrades. Keep those rows in the immutable audit ledger,
+     * but do not project an ambiguous parent as a radar task unless it has an
+     * extracted candidate, an exact market link, or one of the exchange's
+     * verified English/Chinese listing-title shapes. The title exception
+     * preserves genuine Unicode-ticker and legacy localized notices that
+     * cannot yet be represented safely as a candidate; a timestamp alone is
+     * deliberately insufficient. announcementDetail() remains unfiltered for
+     * forensic access to every source row.
+     */
+    private function applyAnnouncementTaskVisibility($query): void
+    {
+        $query->where(function ($visible): void {
+            $visible->where('platform_id', '<>', 8)
+                ->orWhere('announcement_kind', '<>', 'ambiguous')
+                ->orWhereNotNull('candidate_symbol')
+                ->orWhereExists(function ($candidates): void {
+                    $candidates->select(DB::raw(1))
+                        ->from(
+                            'spot_listing_announcement_candidates AS ' .
+                            'visible_candidates'
+                        )
+                        ->whereRaw(
+                            'visible_candidates.announcement_event_id = ' .
+                            'spot_listing_announcement_events.id'
+                        );
+                })->orWhereExists(function ($links): void {
+                    $links->select(DB::raw(1))
+                        ->from('spot_listing_announcement_links AS visible_links')
+                        ->whereRaw(
+                            'visible_links.announcement_event_id = ' .
+                            'spot_listing_announcement_events.id'
+                        );
+                })->orWhere(function ($verifiedTitle): void {
+                    $verifiedTitle->whereRaw(
+                        'LOWER(title) LIKE ?',
+                        ['% listed on kucoin%']
+                    )->orWhereRaw(
+                        'LOWER(title) LIKE ?',
+                        ['% listing on kucoin%']
+                    )->orWhere('title', 'like', 'KuCoin 将上线 %')
+                        ->orWhere('title', 'like', 'KuCoin 將上線 %');
+                });
+        });
     }
 
     /**
