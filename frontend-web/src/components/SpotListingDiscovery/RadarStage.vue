@@ -3,22 +3,26 @@
     <div v-if="operation" class="radar-stage__body">
       <aside class="radar-stage__identity">
         <span class="radar-stage__platform">{{ platform }}</span>
+        <listing-channel-badge :value="operation" />
         <h1 id="radar-stage-title">
           {{ identity.base }} <small>/ {{ identity.quote }}</small>
         </h1>
-        <p>{{ operation.title || `${identity.base} 现货上币监测` }}</p>
-        <span class="radar-stage__spot">SPOT · DISCOVERY</span>
+        <p>{{ operation.title || `${identity.base} 上币机会监测` }}</p>
         <dl>
+          <div v-if="showsExchangeSymbol">
+            <dt>平台市场标识</dt>
+            <dd>{{ operation.exchange_symbol }}</dd>
+          </div>
           <div>
-            <dt>计划开盘时间</dt>
-            <dd>{{ formatTime(operation.planned_start_at_ms) }}</dd>
+            <dt>计划开盘时间（北京时间）</dt>
+            <dd>{{ plannedTime }}</dd>
           </div>
           <div>
             <dt>时间依据</dt>
             <dd>{{ sourceLabel }}</dd>
           </div>
           <div>
-            <dt>首次发现</dt>
+            <dt>首次发现（北京时间）</dt>
             <dd>{{ formatTime(operation.first_seen_at_ms || operation.detected_at_ms) }}</dd>
           </div>
         </dl>
@@ -30,12 +34,25 @@
         >
           <i class="el-icon-link" aria-hidden="true" /> 查看官方公告
         </button>
+        <a
+          v-else-if="officialSourceUrl"
+          :href="officialSourceUrl"
+          class="radar-stage__link"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <i class="el-icon-link" aria-hidden="true" /> 查看官方专区
+        </a>
       </aside>
 
       <div class="radar-stage__scope">
         <div class="radar-stage__sweep" aria-hidden="true" />
         <div class="radar-stage__timer" :class="`is-${countdown.tone}`" role="timer">
-          <span>{{ countdown.label }}</span>
+          <div v-if="hasPlannedTime" class="radar-stage__scheduled-at">
+            <small>计划开盘 · 北京时间</small>
+            <time>{{ plannedTime }}</time>
+          </div>
+          <span v-if="countdown.segments.length">{{ countdown.label }}</span>
           <strong v-if="countdown.segments.length">
             <b>{{ countdown.prefix }}</b>
             <template v-for="(segment, index) in countdown.segments">
@@ -57,8 +74,8 @@
 
     <div v-else class="radar-stage__empty">
       <i class="el-icon-rank" aria-hidden="true" />
-      <strong id="radar-stage-title">{{ loading ? "正在接入雷达数据" : "当前窗口暂无上币项目" }}</strong>
-      <span>发现引擎会持续寻找下一项现货上币任务</span>
+      <strong id="radar-stage-title">{{ emptyTitle }}</strong>
+      <span>{{ emptyDetail }}</span>
     </div>
 
     <nav class="radar-stage__toolbar" aria-label="项目切换与刷新">
@@ -69,7 +86,7 @@
         下一个 <i class="el-icon-arrow-right" aria-hidden="true" />
       </button>
       <button type="button" :disabled="!selectionLocked" @click="$emit('latest')">
-        返回最近项目
+        返回下一场
       </button>
       <button
         type="button"
@@ -103,12 +120,16 @@ import {
   lifecycleLabel,
   lifecycleNodeState,
   operationIdentity,
+  plannedTimeLabel,
   platformName,
+  sanitizeOfficialSourceUrl,
   startSourceLabel
 } from "@/utils/spotListingDiscovery";
+import ListingChannelBadge from "./ListingChannelBadge.vue";
 
 export default {
   name: "SpotListingRadarStage",
+  components: { ListingChannelBadge },
   props: {
     operation: {
       type: Object,
@@ -122,7 +143,10 @@ export default {
     hasNext: Boolean,
     selectionLocked: Boolean,
     loading: Boolean,
-    refreshing: Boolean
+    refreshing: Boolean,
+    loaded: Boolean,
+    unavailable: Boolean,
+    coverageIncomplete: Boolean
   },
   computed: {
     countdown() {
@@ -140,6 +164,48 @@ export default {
       return this.operation
         ? startSourceLabel(this.operation.planned_start_source)
         : "--";
+    },
+    plannedTime() {
+      return plannedTimeLabel(this.operation);
+    },
+    hasPlannedTime() {
+      return Boolean(
+        this.operation &&
+        Number.isSafeInteger(this.operation.planned_start_at_ms) &&
+        this.operation.planned_start_at_ms > 0
+      );
+    },
+    emptyTitle() {
+      if (!this.loaded) {
+        return this.unavailable ? "雷达数据暂不可用" : "正在接入雷达数据";
+      }
+      return this.coverageIncomplete
+        ? "来源异常，无法确认业务空窗"
+        : "未来 7 天暂无已确认开盘";
+    },
+    emptyDetail() {
+      if (this.unavailable && !this.loaded) {
+        return "任务接口正在自动重试，恢复前不会把故障误报成业务空窗";
+      }
+      if (!this.loaded) {
+        return this.loading ? "正在获取首批任务数据" : "正在准备首次任务请求";
+      }
+      if (this.coverageIncomplete) {
+        return "至少一个关键扫描来源异常；系统保留上次有效状态并继续自动重试";
+      }
+      return "雷达继续自动扫描；缺少开盘时间的记录已单独列入待补全清单";
+    },
+    officialSourceUrl() {
+      if (!this.operation) return "";
+      return sanitizeOfficialSourceUrl(
+        this.operation.announcement_source_url,
+        this.operation.platform_id
+      );
+    },
+    showsExchangeSymbol() {
+      if (!this.operation || !this.operation.exchange_symbol) return false;
+      return String(this.operation.exchange_symbol).toUpperCase() !==
+        String(this.operation.symbol).toUpperCase();
     }
   },
   methods: {
@@ -209,19 +275,9 @@ export default {
     white-space: nowrap;
   }
 
-  &__spot {
-    display: inline-block;
-    padding: 4px 8px;
-    border: 1px solid #294a5d;
-    border-radius: 3px;
-    color: #7f9baa;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-  }
-
   dl { margin: 28px 0 0; }
   dl > div + div { margin-top: 12px; }
-  dt { color: #4f7183; font-size: 10px; }
+  dt { color: #678799; font-size: 12px; }
   dd {
     margin: 4px 0 0;
     color: #35dcff;
@@ -286,6 +342,28 @@ export default {
     text-align: center;
   }
 
+  &__scheduled-at {
+    margin: 0 auto 24px;
+    padding: 12px 18px;
+    border-top: 1px solid rgba(53, 220, 255, 0.28);
+    border-bottom: 1px solid rgba(53, 220, 255, 0.28);
+    color: #35dcff;
+  }
+  &__scheduled-at small {
+    display: block;
+    margin-bottom: 7px;
+    color: #86a4b3;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+  &__scheduled-at time {
+    color: #eaf8fd;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: clamp(18px, 2.1vw, 28px);
+    font-variant-numeric: tabular-nums;
+  }
+
   &__timer > span {
     display: block;
     margin-bottom: 18px;
@@ -306,7 +384,7 @@ export default {
   &__timer strong > b { margin: 4px 8px 0 0; font-size: 0.32em; }
   &__timer em { display: inline-flex; flex-direction: column; font-style: normal; }
   &__timer em i { font-style: normal; }
-  &__timer em small { margin-top: 5px; color: #688291; font-size: 9px; font-weight: 400; }
+  &__timer em small { margin-top: 5px; color: #688291; font-size: 12px; font-weight: 400; }
   &__separator { margin: 0 7px !important; font-size: 0.85em !important; }
   &__timer.is-green { color: #29e59d; }
   &__timer.is-red { color: #ff657b; }
@@ -375,8 +453,8 @@ export default {
   }
   &__lifecycle li:last-child::after { display: none; }
   &__lifecycle i { color: #526f7f; }
-  &__lifecycle span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-  &__lifecycle small { grid-column: 2; margin-top: 3px; font-size: 8px; }
+  &__lifecycle span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  &__lifecycle small { grid-column: 2; margin-top: 3px; font-size: 12px; }
   &__lifecycle li.is-completed i,
   &__lifecycle li.is-completed span { color: #35dcff; }
   &__lifecycle li.is-current i,

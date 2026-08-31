@@ -3,12 +3,47 @@ import { MessageBox, Message } from "element-ui";
 import store from "@/store";
 import { getToken } from "@/utils/auth";
 
+export const AUTH_EXPIRED_EVENT = "cryptomonitor:auth-expired";
+
+let reauthenticationFlow = null;
+
 function safeGet(value, property) {
   try {
     return value == null ? undefined : value[property];
   } catch (error) {
     return undefined;
   }
+}
+
+function announceAuthenticationExpiry() {
+  if (
+    typeof window === "undefined" ||
+    typeof window.dispatchEvent !== "function" ||
+    typeof window.CustomEvent !== "function"
+  ) {
+    return;
+  }
+  window.dispatchEvent(new window.CustomEvent(AUTH_EXPIRED_EVENT));
+}
+
+function beginReauthentication() {
+  announceAuthenticationExpiry();
+  if (reauthenticationFlow) return reauthenticationFlow;
+  reauthenticationFlow = Promise.resolve(
+    MessageBox.confirm("登录状态过期", "确认退出登录", {
+      confirmButtonText: "重新登录",
+      cancelButtonText: "取消",
+      type: "warning"
+    })
+  )
+    .then(() => store.dispatch("user/resetToken"))
+    .then(() => location.reload())
+    .catch(() => {})
+    .then(result => {
+      reauthenticationFlow = null;
+      return result;
+    });
+  return reauthenticationFlow;
 }
 
 // create an axios instance
@@ -55,7 +90,11 @@ service.interceptors.response.use(
 
     // if the custom code is not 20000, it is judged as an error.
     if (res.code !== 200) {
-      if (safeGet(response.config, "silentError") !== true) {
+      const authenticationExpired = [50008, 50012, 50014].includes(res.code);
+      if (
+        !authenticationExpired &&
+        safeGet(response.config, "silentError") !== true
+      ) {
         Message({
           message: res.message || "Error",
           type: "error",
@@ -64,16 +103,8 @@ service.interceptors.response.use(
       }
 
       // 50008: Illegal token; 50012: Other clients logged in; 50014: Token expired;
-      if (res.code === 50008 || res.code === 50012 || res.code === 50014) {
-        // to re-login
-        MessageBox.confirm("登录状态过期", "确认退出登录", {
-          confirmButtonText: "重新登录",
-          cancelButtonText: "取消",
-          type: "warning"
-        })
-          .then(() => store.dispatch("user/resetToken"))
-          .then(() => location.reload())
-          .catch(() => {});
+      if (authenticationExpired) {
+        beginReauthentication();
       }
       return Promise.reject(new Error(res.message || "Error"));
     } else {

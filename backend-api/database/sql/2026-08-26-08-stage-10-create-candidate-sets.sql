@@ -1,5 +1,5 @@
--- Stage 10: per-announcement candidate-set metadata. Stop only the dedicated
--- announcement writer while applying this stage.
+-- Stage 10: per-announcement candidate-set metadata. Stop the discovery-only
+-- spot_listing_watcher while applying; market and announcement polling share it.
 SET SESSION `lock_wait_timeout` = 5;
 SET SESSION `innodb_lock_wait_timeout` = 5;
 

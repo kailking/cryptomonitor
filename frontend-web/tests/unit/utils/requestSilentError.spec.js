@@ -55,6 +55,16 @@ function expectOriginalRejection(promise, originalError) {
   );
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("request silentError option", () => {
   let originalLocation;
 
@@ -130,5 +140,30 @@ describe("request silentError option", () => {
     expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockDispatch).toHaveBeenCalledWith("user/resetToken");
     expect(mockReload).toHaveBeenCalledTimes(1);
+  });
+
+  test("coalesces concurrent token-expiry responses into one re-login flow", async() => {
+    const confirmation = createDeferred();
+    mockConfirm.mockReturnValue(confirmation.promise);
+    const expiryListener = jest.fn();
+    window.addEventListener("cryptomonitor:auth-expired", expiryListener);
+    const response = {
+      config: { silentError: true },
+      data: { code: 50014, message: "token expired" }
+    };
+
+    const first = expectOriginalRejection(mockResponseFulfilled(response));
+    const second = expectOriginalRejection(mockResponseFulfilled(response));
+    await Promise.all([first, second]);
+
+    expect(mockMessage).not.toHaveBeenCalled();
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(expiryListener).toHaveBeenCalledTimes(2);
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    confirmation.reject("cancel");
+    await Promise.resolve();
+    await Promise.resolve();
+    window.removeEventListener("cryptomonitor:auth-expired", expiryListener);
   });
 });

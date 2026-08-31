@@ -2,62 +2,64 @@
   <section class="discovery-queue" aria-labelledby="discovery-queue-title">
     <header>
       <div>
-        <span>LIVE MISSION QUEUE</span>
-        <h2 id="discovery-queue-title">即将执行</h2>
+        <span>已确认开盘任务</span>
+        <h2 id="discovery-queue-title">未来开盘</h2>
+        <small>仅显示已有明确开盘时间的交易对</small>
       </div>
-      <b>{{ operations.length }} 项任务</b>
+      <b>
+        {{ missionCount }} 项
+        <small v-if="truncated">· 当前窗口已截断</small>
+      </b>
     </header>
 
-    <nav class="discovery-queue__tabs" aria-label="任务分组">
-      <button
-        v-for="tab in tabs"
-        :key="tab.value"
-        type="button"
-        :class="{ 'is-active': activeGroup === tab.value }"
-        @click="activeGroup = tab.value"
-      >
-        {{ tab.label }} <small>{{ tab.count }}</small>
-      </button>
-    </nav>
-
-    <ol v-if="visibleOperations.length" class="discovery-queue__list">
+    <ol v-if="renderedOperations.length" class="discovery-queue__list">
       <li
-        v-for="(operation, index) in visibleOperations"
+        v-for="operation in renderedOperations"
         :key="operation.operation_key"
         :class="{ 'is-selected': operation.operation_key === selectedKey }"
       >
         <button type="button" @click="$emit('select', operation.operation_key)">
-          <b class="discovery-queue__rank">{{ String(index + 1).padStart(2, "0") }}</b>
+          <b class="discovery-queue__rank">{{ rank(operation) }}</b>
           <span class="discovery-queue__content">
             <small>{{ platform(operation) }}</small>
+            <listing-channel-badge :value="operation" compact />
             <strong>{{ identity(operation).base }} <i>/ {{ identity(operation).quote }}</i></strong>
-            <em>{{ operation.title || "交易所现货发现" }}</em>
+            <em>{{ operation.title || "上币与早期市场机会发现" }}</em>
             <span class="discovery-queue__status" :class="`is-${group(operation).tone}`">
               {{ group(operation).label }}
             </span>
           </span>
-          <time>{{ compactTime(operation) }}</time>
+          <time>
+            <strong>{{ formatTime(operation.planned_start_at_ms) }}</strong>
+            <small>{{ compactTime(operation) }}</small>
+          </time>
         </button>
       </li>
     </ol>
 
     <div v-else class="discovery-queue__empty">
       <i class="el-icon-search" aria-hidden="true" />
-      当前分组暂无任务
+      {{ emptyText }}
     </div>
+    <small v-if="missionCount > renderedOperations.length" class="discovery-queue__limit">
+      共 {{ missionCount }} 项，当前展示最早的 {{ renderedOperations.length }} 项
+    </small>
   </section>
 </template>
 
 <script>
 import {
   countdownPresentation,
-  operationGroupMeta,
+  formatListingTime,
+  operationDisplayGroupMeta,
   operationIdentity,
   platformName
 } from "@/utils/spotListingDiscovery";
+import ListingChannelBadge from "./ListingChannelBadge.vue";
 
 export default {
   name: "SpotListingDiscoveryQueue",
+  components: { ListingChannelBadge },
   props: {
     operations: {
       type: Array,
@@ -74,41 +76,73 @@ export default {
     nowMs: {
       type: Number,
       required: true
-    }
-  },
-  data() {
-    return { activeGroup: "all" };
+    },
+    loaded: Boolean,
+    unavailable: Boolean,
+    coverageIncomplete: Boolean,
+    truncated: Boolean
   },
   computed: {
-    tabs() {
-      return [
-        { value: "all", label: "全部", count: this.operations.length },
-        { value: "upcoming", label: "待开", count: this.summary.upcoming || 0 },
-        { value: "opening", label: "到时", count: this.summary.opening || 0 },
-        { value: "time_unknown", label: "待定", count: this.summary.time_unknown || 0 },
-        { value: "trading", label: "已开", count: this.summary.trading || 0 }
-      ];
+    missionCount() {
+      return this.visibleOperations.length;
     },
     visibleOperations() {
-      const items =
-        this.activeGroup === "all"
-          ? this.operations
-          : this.operations.filter(item => item.operation_group === this.activeGroup);
-      return items.slice(0, 30);
+      return this.operations
+        .filter(item =>
+          Number.isSafeInteger(item.planned_start_at_ms) &&
+          item.planned_start_at_ms > this.nowMs &&
+          ["upcoming", "opening"].includes(item.operation_group) &&
+          !["trading", "disabled"].includes(item.exchange_status)
+        )
+        .slice()
+        .sort((left, right) => {
+          const delta = left.planned_start_at_ms - right.planned_start_at_ms;
+          return delta !== 0
+            ? delta
+            : String(left.operation_key).localeCompare(String(right.operation_key));
+        });
+    },
+    renderedOperations() {
+      return this.visibleOperations.slice(0, 8);
+    },
+    emptyText() {
+      if (this.unavailable && !this.loaded) {
+        return "任务数据暂不可用，后台自动重试中";
+      }
+      if (!this.loaded) {
+        return "正在载入任务队列";
+      }
+      if (this.coverageIncomplete) {
+        return "来源异常，当前无法确认是否存在倒计时任务";
+      }
+      return "未来 7 天暂无已确认开盘时间的任务";
     }
   },
   methods: {
+    formatTime: formatListingTime,
     identity: operationIdentity,
     group(operation) {
-      return operationGroupMeta(operation.operation_group);
+      return operationDisplayGroupMeta(operation, this.nowMs);
     },
     platform(operation) {
       return platformName(operation.platform_id, operation.platform_text);
     },
+    rank(operation) {
+      const index = this.visibleOperations.findIndex(
+        item => item.operation_key === operation.operation_key
+      );
+      return String(index + 1).padStart(2, "0");
+    },
     compactTime(operation) {
       const timer = countdownPresentation(operation, this.nowMs);
+      if (timer.state === "unknown") return "平台未公布";
+      if (timer.state === "overdue") return "计划已过";
       if (!timer.segments.length) {
-        return timer.state === "trading" ? "已开放" : timer.state === "disabled" ? "已停止" : "--";
+        return timer.state === "trading"
+          ? "已开放"
+          : timer.state === "disabled"
+          ? "已停止"
+          : "平台未公布";
       }
       return `${timer.prefix}${timer.segments.map(item => item.value).join(":")}`;
     }
@@ -130,41 +164,22 @@ export default {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 69px;
-    padding: 10px 15px;
+    min-height: 82px;
+    padding: 12px 16px;
     border-bottom: 1px solid #204457;
   }
 
   header span {
     display: block;
     color: #35dcff;
-    font-size: 8px;
+    font-size: 12px;
     letter-spacing: 0.14em;
   }
 
-  h2 { margin: 4px 0 0; color: #f1f7fa; font-size: 16px; }
-  header > b { color: #66808f; font-size: 10px; font-weight: 500; }
-
-  &__tabs {
-    display: flex;
-    overflow-x: auto;
-    min-height: 42px;
-    padding: 0 7px;
-    border-bottom: 1px solid #193441;
-  }
-  &__tabs button {
-    flex: 0 0 auto;
-    min-height: 40px;
-    padding: 0 8px;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    color: #607b8a;
-    background: transparent;
-    font-size: 10px;
-    cursor: pointer;
-  }
-  &__tabs button.is-active { border-bottom-color: #35dcff; color: #35dcff; }
-  &__tabs small { margin-left: 2px; }
+  h2 { margin: 4px 0 0; color: #f1f7fa; font-size: 20px; }
+  header div > small { display: block; margin-top: 5px; color: #6f8998; font-size: 12px; }
+  header > b { color: #ffc857; font-size: 14px; font-weight: 600; }
+  header > b small { color: #ffc857; font-weight: 500; }
 
   &__list {
     flex: 1;
@@ -173,6 +188,14 @@ export default {
     padding: 0;
     list-style: none;
   }
+  &__limit {
+    display: block;
+    padding: 10px 12px;
+    border-top: 1px solid #193441;
+    color: #ffc857;
+    font-size: 12px;
+    text-align: center;
+  }
   &__list li { border-bottom: 1px solid #193441; }
   &__list li.is-selected { box-shadow: inset 3px 0 0 #35dcff; background: #102230; }
   &__list button {
@@ -180,8 +203,8 @@ export default {
     grid-template-columns: 31px minmax(0, 1fr) auto;
     align-items: start;
     width: 100%;
-    min-height: 104px;
-    padding: 13px 12px 10px;
+    min-height: 108px;
+    padding: 14px 14px 11px;
     border: 0;
     color: inherit;
     background: transparent;
@@ -198,46 +221,52 @@ export default {
     border-radius: 3px;
     color: #758d9b;
     font-family: Consolas, monospace;
-    font-size: 9px;
+    font-size: 12px;
     text-align: center;
   }
   &__content { min-width: 0; }
-  &__content > small { display: block; color: #35dcff; font-size: 9px; }
+  &__content > small { display: block; color: #35dcff; font-size: 12px; }
+  &__content > .listing-channel { margin-top: 4px; }
   &__content > strong {
     display: block;
     overflow: hidden;
     margin-top: 5px;
     color: #f2f7f9;
     font-family: "Arial Narrow", Arial, sans-serif;
-    font-size: 17px;
+    font-size: 19px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  &__content > strong i { color: #8197a4; font-size: 9px; font-style: normal; }
+  &__content > strong i { color: #8197a4; font-size: 12px; font-style: normal; }
   &__content > em {
     display: block;
     overflow: hidden;
     margin-top: 5px;
     color: #607888;
-    font-size: 9px;
+    font-size: 12px;
     font-style: normal;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  &__status { display: inline-block; margin-top: 6px; color: #6e8998; font-size: 9px; }
+  &__status { display: inline-block; margin-top: 6px; color: #6e8998; font-size: 12px; }
   &__status.is-cyan { color: #35dcff; }
   &__status.is-amber { color: #ffc857; }
   &__status.is-green { color: #29e59d; }
   &__status.is-red { color: #ff657b; }
 
   time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     padding-top: 4px;
     color: #ffc857;
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 10px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  time strong { color: #f4d17a; font-size: 12px; font-weight: 600; }
+  time small { margin-top: 7px; color: #ffc857; font-size: 12px; }
 
   &__empty {
     display: flex;
@@ -245,8 +274,11 @@ export default {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    color: #587181;
-    font-size: 11px;
+    padding: 28px;
+    color: #7894a3;
+    font-size: 13px;
+    line-height: 1.6;
+    text-align: center;
   }
 }
 </style>

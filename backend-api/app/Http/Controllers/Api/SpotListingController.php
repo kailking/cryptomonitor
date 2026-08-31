@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\SpotListingProjectionUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Services\SpotListingDiscoveryService;
 use Illuminate\Http\Request;
@@ -44,7 +45,11 @@ class SpotListingController extends Controller
             return errorReturn($validator->errors()->first(), 422, 422);
         }
 
-        return successReturn($this->listings->paginate($request->query()));
+        try {
+            return successReturn($this->listings->paginate($request->query()));
+        } catch (SpotListingProjectionUnavailableException $exception) {
+            return errorReturn('新币雷达数据暂不可用', 50301, 503);
+        }
     }
 
     public function operations(Request $request)
@@ -69,7 +74,11 @@ class SpotListingController extends Controller
             return errorReturn($validator->errors()->first(), 422, 422);
         }
 
-        return successReturn($this->listings->operations($request->query()));
+        try {
+            return successReturn($this->listings->operations($request->query()));
+        } catch (SpotListingProjectionUnavailableException $exception) {
+            return errorReturn('新币雷达数据暂不可用', 50301, 503);
+        }
     }
 
     public function announcements(Request $request)
@@ -99,9 +108,13 @@ class SpotListingController extends Controller
             return errorReturn($validator->errors()->first(), 422, 422);
         }
 
-        return successReturn(
-            $this->listings->paginateAnnouncements($request->query())
-        );
+        try {
+            return successReturn(
+                $this->listings->paginateAnnouncements($request->query())
+            );
+        } catch (SpotListingProjectionUnavailableException $exception) {
+            return errorReturn('新币雷达数据暂不可用', 50301, 503);
+        }
     }
 
     public function showAnnouncement(Request $request, $id)
@@ -115,7 +128,11 @@ class SpotListingController extends Controller
         if ($announcementId === null) {
             return errorReturn('公告ID参数无效', 422, 422);
         }
-        $result = $this->listings->announcementDetail($announcementId);
+        try {
+            $result = $this->listings->announcementDetail($announcementId);
+        } catch (SpotListingProjectionUnavailableException $exception) {
+            return errorReturn('新币雷达数据暂不可用', 50301, 503);
+        }
         if ($result === null) {
             return errorReturn('找不到该官方公告', 404, 404);
         }
@@ -134,7 +151,11 @@ class SpotListingController extends Controller
         if ($instrumentId === null) {
             return errorReturn('交易对ID参数无效', 422, 422);
         }
-        $result = $this->listings->detail($instrumentId);
+        try {
+            $result = $this->listings->detail($instrumentId);
+        } catch (SpotListingProjectionUnavailableException $exception) {
+            return errorReturn('新币雷达数据暂不可用', 50301, 503);
+        }
         if ($result === null) {
             return errorReturn('找不到该交易对发现记录', 404, 404);
         }

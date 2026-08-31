@@ -393,7 +393,7 @@ describe('request response permissions', () => {
         mockResponseFulfilled({ data: { code, message: businessMessage } })
       ).rejects.toThrow(businessMessage)
 
-      expect(mockMessage).toHaveBeenCalledTimes(1)
+      expect(mockMessage).not.toHaveBeenCalled()
       expect(mockConfirm).toHaveBeenCalledTimes(1)
       expect(mockDispatch).not.toHaveBeenCalled()
       expect(mockReload).not.toHaveBeenCalled()
