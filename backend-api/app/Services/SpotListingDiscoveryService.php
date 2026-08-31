@@ -1342,6 +1342,20 @@ class SpotListingDiscoveryService
             return $grouped;
         }
         $query = DB::table('spot_listing_announcement_links AS links')
+            ->join(
+                'spot_listing_announcement_events AS linked_events',
+                function ($join): void {
+                    $join->on(
+                        'linked_events.id',
+                        '=',
+                        'links.announcement_event_id'
+                    )->on(
+                        'linked_events.platform_id',
+                        '=',
+                        'links.platform_id'
+                    );
+                }
+            )
             ->whereIn('links.announcement_event_id', $ids)
             ->orderByDesc('links.announcement_event_id')
             ->orderByDesc('links.confidence')

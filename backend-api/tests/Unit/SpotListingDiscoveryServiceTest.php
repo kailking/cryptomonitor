@@ -3548,6 +3548,49 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $this->assertSame('opening', $operation['operation_group']);
     }
 
+    public function test_announcement_link_ignores_cross_platform_parent_identity(): void
+    {
+        $announcementId = $this->insertAnnouncement(5, 'mexc-cross-platform-link', [
+            'title' => 'MEXC will list CROSS/USDT',
+            'announcement_kind' => 'spot_usdt_explicit',
+        ]);
+        $this->insertCandidate(
+            $announcementId,
+            1,
+            'CROSSUSDT',
+            self::NOW_MS + 60000
+        );
+        DB::table('spot_listing_market_states')->insert([
+            'platform_id' => 4,
+            'symbol' => 'CROSSUSDT',
+            'exchange_symbol' => 'CROSS_USDT',
+            'base_currency' => 'CROSS',
+            'quote_currency' => 'USDT',
+            'exchange_status' => 'trading',
+            'trading_start_at_ms' => self::NOW_MS - 60000,
+            'observed_at_ms' => self::NOW_MS - 500,
+            'source_hash' => str_repeat('f', 64),
+            'revision' => 1,
+            'is_present' => 1,
+        ]);
+        $this->insertAnnouncementLink(
+            $announcementId,
+            4,
+            'CROSSUSDT',
+            null
+        );
+
+        $page = $this->service()->paginateAnnouncements([
+            'page' => 1,
+            'page_size' => 10,
+            'platform_id' => 5,
+        ]);
+
+        $this->assertSame(1, $page['total']);
+        $this->assertSame('CROSSUSDT', $page['data'][0]['pairs'][0]['symbol']);
+        $this->assertNull($page['data'][0]['pairs'][0]['exchange_status']);
+    }
+
     public function test_incomplete_core_table_shape_marks_projection_unavailable(): void
     {
         Schema::drop('spot_listing_instruments');
