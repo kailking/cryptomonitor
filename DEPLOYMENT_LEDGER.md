@@ -113,7 +113,7 @@
 | 环境 | 生产 |
 | 变更目标 | 独立发现币安、OKX、Gate、MEXC、KuCoin 的现货上新、官方公告和 Alpha/Meme+/RWA/代币化资产等专区交易对，并在新币雷达页面实时展示交易所、交易对、专区与计划开盘时间 |
 | cryptomonitor 运行代码 | `8fa7ebabb75821dec27986903522f3219790af06`（backend-api + frontend-web） |
-| go_project 运行代码 | `1cc6eb180438b825286d5155a5d72b21dc7febb9`（新币雷达采集器；关联记录 `GO-20260901-SPOT-LISTING-DISCOVERY-V1`） |
+| go_project 可复现发布代码 | `ced10fed1f58ecfa309727ba2f572c10ea863dcd`（干净 `main` 集成；与生产冻结提交 `1cc6eb180438b825286d5155a5d72b21dc7febb9` 的雷达补丁等价；关联记录 `GO-20260901-SPOT-LISTING-DISCOVERY-V1`） |
 | 服务器目标 | Laravel `/www/wwwroot/bishujucoin.com`；前端预览 `/www/wwwroot/bishujucoin.com/public/nweweb`、正式 `/www/wwwroot/bishujucoin.com/public/web`；Go `/www/wwwroot/go_project/exchange_hub` |
 | 实施/部署/验证/回滚负责人 | 用户已完成部署与生产确认；具体账号未提供，待现场补录 |
 
@@ -160,7 +160,7 @@
 | cryptomonitor / Laravel | `backend-api/config/permissions.php` | 应用同路径 | 同上 |
 | cryptomonitor / Laravel | `backend-api/routes/api.php` | 应用同路径 | 同上 |
 | cryptomonitor / Vue | 同一次 `npm run build:web` 的 `frontend-web/dist/web/` | 先完整替换 `public/nweweb/`，验收后以相同字节完整替换 `public/web/` | 生产包逐文件清单与 SHA-256 未留存；不得事后补造 |
-| go_project | 两个 watcher 的源码与服务器编译 binary | `/www/wwwroot/go_project/exchange_hub` | 代码提交 `1cc6eb180438b825286d5155a5d72b21dc7febb9`；生产 binary SHA-256 未留存 |
+| go_project | 两个 watcher 的源码与服务器编译 binary | `/www/wwwroot/go_project/exchange_hub` | 干净主线代码 `ced10fed1f58ecfa309727ba2f572c10ea863dcd`；生产冻结提交 `1cc6eb180438b825286d5155a5d72b21dc7febb9`；生产 binary SHA-256 未留存 |
 
 生产实际逐文件上传审计记录和备份路径未提供。上表记录可由 Git 复现的运行范围，不冒充缺失的宝塔上传日志。
 
