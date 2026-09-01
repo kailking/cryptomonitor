@@ -102,6 +102,100 @@
 
 ## 4. 部署记录
 
+### 2026-09-01 / CM-20260901-SPOT-LISTING-DISCOVERY-V1 / 新币雷达 1.0
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 已部署（用户于 2026-09-01 确认生产运行正常；本轮未独立登录生产服务器复核） |
+| 实际开始/结束时间 | 已完成；精确时间未提供 |
+| 环境 | 生产 |
+| 变更目标 | 独立发现币安、OKX、Gate、MEXC、KuCoin 的现货上新、官方公告和 Alpha/Meme+/RWA/代币化资产等专区交易对，并在新币雷达页面实时展示交易所、交易对、专区与计划开盘时间 |
+| cryptomonitor 运行代码 | `8fa7ebabb75821dec27986903522f3219790af06`（backend-api + frontend-web） |
+| go_project 运行代码 | `1cc6eb180438b825286d5155a5d72b21dc7febb9`（新币雷达采集器；关联记录 `GO-20260901-SPOT-LISTING-DISCOVERY-V1`） |
+| 服务器目标 | Laravel `/www/wwwroot/bishujucoin.com`；前端预览 `/www/wwwroot/bishujucoin.com/public/nweweb`、正式 `/www/wwwroot/bishujucoin.com/public/web`；Go `/www/wwwroot/go_project/exchange_hub` |
+| 实施/部署/验证/回滚负责人 | 用户已完成部署与生产确认；具体账号未提供，待现场补录 |
+
+#### 架构与影响边界
+
+- 新币雷达是发现与展示链路：Go 的 `spot_listing_watcher` 负责普通现货和官方公告，`listing_channel_watcher` 负责交易所专区；Laravel 只读投影到前端作战室。
+- 后端和前端在本 `cryptomonitor` 仓库统一版本管理；旧独立前端/后端目录不属于本次发布。
+- `tool/`、`cmd_2`、Redis、盘口确认与原行情进程均无代码、配置、数据或重启操作；新币雷达不向 `cmd_2` 热推送。
+- 操作步骤以 [`docs/runbooks/spot-listing-discovery-release.md`](docs/runbooks/spot-listing-discovery-release.md) 为准。
+
+#### 数据库
+
+- 生产采用数据库管理工具把本地最终结构“仅结构”同步到线上；没有执行仓库内建表或 ALTER SQL，也没有同步本地测试数据。
+- 实际范围为以下 15 张独立表：
+
+  ```text
+  spot_listing_announcement_candidate_sets
+  spot_listing_announcement_candidates
+  spot_listing_announcement_checkpoints
+  spot_listing_announcement_events
+  spot_listing_announcement_links
+  spot_listing_announcement_localization_checkpoints
+  spot_listing_announcement_localizations
+  spot_listing_announcement_poll_checkpoints
+  spot_listing_channel_checkpoints
+  spot_listing_channel_events
+  spot_listing_channel_items
+  spot_listing_events
+  spot_listing_instruments
+  spot_listing_market_checkpoints
+  spot_listing_market_states
+  ```
+
+- 结构同步工具、导出文件哈希、生产备份位置及逐表比对报告未提供；本台账不补造。回滚时默认保留上述独立表及生产发现数据，不执行 `DROP`、`TRUNCATE` 或跨业务表清理。
+
+#### 生产文件与构建
+
+| 仓库/组件 | 已部署范围 | 目标 | 可追溯标识 |
+|---|---|---|---|
+| cryptomonitor / Laravel | `backend-api/app/Exceptions/SpotListingProjectionUnavailableException.php` | 应用同路径 | 代码提交 `8fa7ebabb75821dec27986903522f3219790af06` |
+| cryptomonitor / Laravel | `backend-api/app/Http/Controllers/Api/SpotListingController.php` | 应用同路径 | 同上 |
+| cryptomonitor / Laravel | `backend-api/app/Services/SpotListingDiscoveryService.php` | 应用同路径 | 同上 |
+| cryptomonitor / Laravel | `backend-api/app/Services/SpotListingResponseFormatter.php` | 应用同路径 | 同上 |
+| cryptomonitor / Laravel | `backend-api/config/permissions.php` | 应用同路径 | 同上 |
+| cryptomonitor / Laravel | `backend-api/routes/api.php` | 应用同路径 | 同上 |
+| cryptomonitor / Vue | 同一次 `npm run build:web` 的 `frontend-web/dist/web/` | 先完整替换 `public/nweweb/`，验收后以相同字节完整替换 `public/web/` | 生产包逐文件清单与 SHA-256 未留存；不得事后补造 |
+| go_project | 两个 watcher 的源码与服务器编译 binary | `/www/wwwroot/go_project/exchange_hub` | 代码提交 `1cc6eb180438b825286d5155a5d72b21dc7febb9`；生产 binary SHA-256 未留存 |
+
+生产实际逐文件上传审计记录和备份路径未提供。上表记录可由 Git 复现的运行范围，不冒充缺失的宝塔上传日志。
+
+#### 环境与进程
+
+| 组件 | 配置/进程 | 生产结果 |
+|---|---|---|
+| Go | `MYSQL_DSN`、`SPOT_LISTING_WATCHER_ENABLED`、五家公告源开关、`SPOT_LISTING_CHANNEL_WATCHER_ENABLED` | 变量名与用途已纳入上线手册；真实值不入库；用户确认运行正常 |
+| Go | `spot_listing_watcher`，工作目录 `/www/wwwroot/go_project/exchange_hub` | 已上线运行；精确 PID、启动时间和宝塔任务标识未提供 |
+| Go | `listing_channel_watcher`，工作目录同上 | 已上线运行；精确 PID、启动时间和宝塔任务标识未提供 |
+| Laravel | `route:clear`、`config:clear`；如启用 OPcache 则由宝塔平滑重载现有 PHP 服务 | 用户确认上线后运行正常；命令输出未留存 |
+
+#### 验证与验收
+
+| 类别 | 实际结果 | 证据边界 |
+|---|---|---|
+| Go 自动化 | Gate Alpha、MEXC 专区及 MEXC 普通现货定向测试通过；此前完整雷达单元测试、race、vet、两个 watcher 构建及官方实时源探针均通过 | 本地工作区验证；不等同于生产服务器命令输出 |
+| 后端/前端 | 新币雷达 1.0 的 API、权限、轮询、作战室页面和时间状态回归已在发布前完成 | 对应测试与源码位于 `8fa7eba...`；本次未重建历史生产包哈希 |
+| 生产验收 | 用户于 2026-09-01 明确确认“已经部署上线，现在运行正常” | 用户生产验收；本轮未独立登录服务器、数据库或浏览器复核 |
+| 稳定性边界 | 原 `cmd_2`、Redis、盘口和其他行情链路不属于本发布 | 无相关代码差异，也不纳入发布/回滚操作 |
+
+#### 回滚
+
+1. 先按宝塔中已核实的任务标识停止且只停止 `spot_listing_watcher`、`listing_channel_watcher`，不得按进程名或端口批量杀进程。
+2. 恢复部署前备份的六个 Laravel 文件和正式前端目录；若实际备份位置未补录，应先现场核实，禁止猜测路径。
+3. 恢复上一版 Go 源码/binary 后再由原宝塔任务启动；不触碰 `cmd_2` 和其他行情进程。
+4. 15 张 `spot_listing_*` 独立表默认保留，避免丢失生产发现记录；无 Redis 清理，不执行 `FLUSHDB`。
+5. 回滚后复核原站、原行情链路和两个雷达入口状态，并补记实际 PID、日志和操作时间。
+
+#### 结果与遗留审计项
+
+- 最终状态：已部署，用户确认生产运行正常。
+- 已知异常：无已报告运行异常。
+- 待补审计信息：生产精确窗口、实施账号、宝塔任务标识、备份位置、前端构建产物哈希、Go binary 哈希及服务器命令输出。这些缺口不影响记录当前部署事实，但下一次发布前应先固化。
+
 ### 2026-08-16 / CM-20260816-EXTREME-30S-V1 / 极端行情 30 秒与 5 分钟双窗口
 
 #### 基本信息

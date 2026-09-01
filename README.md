@@ -7,6 +7,7 @@
 - `frontend-web/`：Vue 前端源码
 - `backend-api/`：Laravel 后端 API 源码
 - `docs/`：开发与维护文档
+- `docs/runbooks/spot-listing-discovery-release.md`：新币雷达宝塔三步上线清单
 - `DEPLOYMENT_LEDGER.md`：强制部署台账，记录每次发布的提交、上传文件、SQL、环境变量、进程操作、验证和回滚
 
 ## 本地配置
