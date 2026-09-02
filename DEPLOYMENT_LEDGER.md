@@ -102,6 +102,97 @@
 
 ## 4. 部署记录
 
+### 2026-09-03 / CM-20260903-SPOT-LISTING-RADAR-HARDENING-V1 / 新币雷达 1.0 生产增强
+
+#### 基本信息
+
+| 字段 | 内容 |
+|---|---|
+| 状态 | 已部署（用户于 2026-09-03 确认已部署上线；本轮未独立登录生产服务器复核） |
+| 实际开始/结束时间 | 已完成；精确时间未提供 |
+| 环境 | 生产 |
+| 变更目标 | 补齐 MEXC 无公告突发上币发现、短时视觉提醒、旧数据准入围栏与启动期数据留存治理，并保持五家雷达页面自动更新 |
+| cryptomonitor 运行代码 | `ca70f51c3cbd8e4d36864eeaaff4de5e2b02a096` |
+| go_project 运行代码 | `e0e7baf4582f90b4c673920f0eaf4d0faaa991aa`（干净 `main` 集成；关联记录 `GO-20260903-SPOT-LISTING-RADAR-HARDENING-V1`） |
+| 服务器目标 | Laravel `/www/wwwroot/bishujucoin.com`；前端 `/www/wwwroot/bishujucoin.com/public/nweweb`、`/www/wwwroot/bishujucoin.com/public/web`；Go `/www/wwwroot/go_project/exchange_hub` |
+| 实施/部署/验证/回滚负责人 | 用户已完成部署确认；具体账号未提供，待现场补录 |
+
+#### 功能与稳定性边界
+
+- MEXC 网页现货候选以独立 `mexc_web_spot_candidates` 源接入既有 `listing_channel_watcher`，采用静默基线和时间准入；网页源失败、候选消失或历史目录项不会污染 MEXC 权威现货快照，也不会误生成“停止交易”。
+- 未来开盘、最近七天可信证据以及基线建立后首次出现的无时间身份才进入业务视野；旧置顶公告和早已交易/停止的历史项目不会因重启反复成为最新发现。
+- 突发上币记录在“最新发现”中只做有期限的视觉提醒，到期自动恢复普通样式；页面任务、公告和新记录继续按原自动轮询更新，时间校准仍遵循既有前端规则。
+- 两个雷达进程启动时分别在独占锁内执行有界清理：旧公告和可压缩事件默认保留 8 天，每批 500 行、全局最多 100 批、最长 8 秒；失败降级但不阻断采集。
+- `spot_listing_market_states`、`spot_listing_channel_items` 与各 checkpoint 是唯一身份/防重复基线，按唯一键更新并永久保留；不会按轮询次数无限追加。
+- 本次不修改、重启或接入 `cmd_2`、Redis、盘口确认、自动交易及其他行情进程；不存在新币雷达向 `cmd_2` 热推送。
+
+#### 完整 Git 文件边界
+
+生产运行文件、迁移、测试和文档均固定在上述两个完整提交中。本仓本次提交逐文件范围如下：
+
+```text
+backend-api/app/Services/SpotListingDiscoveryService.php
+backend-api/app/Services/SpotListingResponseFormatter.php
+backend-api/database/sql/2026-08-16-01-create-spot-listings.sql
+backend-api/database/sql/2026-08-27-20-create-spot-listing-channel-markets.sql
+backend-api/database/sql/2026-09-02-10-allow-cex-spot-channel-items.sql
+backend-api/database/sql/2026-09-02-11-postflight-cex-spot-channel-items.sql
+backend-api/database/sql/2026-09-02-20-add-spot-listing-retention-indexes.sql
+backend-api/database/sql/2026-09-02-21-postflight-spot-listing-retention-indexes.sql
+backend-api/database/sql/2026-09-02-88-drop-spot-listing-retention-indexes.sql
+backend-api/database/sql/2026-09-02-89-rollback-cex-spot-channel-items.sql
+backend-api/tests/Unit/SpotListingDiscoveryServiceTest.php
+backend-api/tests/Unit/SpotListingDiscoverySqlTest.php
+backend-api/tests/Unit/SpotListingResponseFormatterTest.php
+docs/runbooks/spot-listing-discovery-release.md
+frontend-web/src/components/SpotListingDiscovery/DiscoveryQueue.vue
+frontend-web/src/components/SpotListingDiscovery/IntelligenceStrip.vue
+frontend-web/src/utils/spotListingDiscovery.js
+frontend-web/src/views/quotation/listings.vue
+frontend-web/tests/unit/components/SpotListingMissionRouting.spec.js
+frontend-web/tests/unit/utils/spotListingDiscovery.spec.js
+frontend-web/tests/unit/views/spotListingDiscoveryRoom.spec.js
+```
+
+测试文件、回滚 SQL、postflight SQL 与部署台账只用于验证/交接，不应覆盖生产运行目录；关联 Go 仓库的 `.env.example` 也不得覆盖生产真实 `.env`。前端生产包由同一次 Node 14 构建生成；生产实际包 SHA-256、宝塔逐文件上传记录和备份路径未提供，本台账不事后补造。
+
+#### 数据库与环境
+
+已运行 1.0 的生产库应按以下顺序执行迁移；用户确认当前版本已部署，但未回传逐条 SQL 输出，因此这里不把 postflight 结果伪记为已核验：
+
+1. `backend-api/database/sql/2026-09-02-10-allow-cex-spot-channel-items.sql`
+2. `backend-api/database/sql/2026-09-02-11-postflight-cex-spot-channel-items.sql`
+3. `backend-api/database/sql/2026-09-02-20-add-spot-listing-retention-indexes.sql`
+4. `backend-api/database/sql/2026-09-02-21-postflight-spot-listing-retention-indexes.sql`
+
+生产 `.env` 保留真实凭据且不得由模板覆盖。本次新增或确认的非敏感变量为：`SPOT_LISTING_CHANNEL_MEXC_WEB_SPOT_INTERVAL_SECONDS`、`SPOT_LISTING_CHANNEL_MEXC_WEB_SPOT_MINIMUM_ITEMS`、`SPOT_LISTING_RETENTION_ENABLED`、`SPOT_LISTING_RETENTION_DAYS`；其他雷达开关与 `MYSQL_DSN` 沿用 1.0 配置，真实值不入库。
+
+#### 进程与验证
+
+| 类别 | 实际结果 | 证据边界 |
+|---|---|---|
+| 生产进程 | 用户确认当前版本已经部署上线 | 精确宝塔任务标识、PID、启动时间、服务器日志和 retention 状态行未提供 |
+| PHP | `125 tests / 653 assertions` 通过 | 本地 PHP 7.2 回归 |
+| Vue | Node `14.21.3` 下 `3 suites / 131 tests` 通过，`npm run build:web` 成功 | 构建仅有既有 bundle-size 警告；不等同于生产包哈希 |
+| Go | `go test -count=1 ./...` 通过；本次雷达包定向 `go vet` 通过；两个 watcher 构建通过 | 全仓 `go vet ./...` 仍有三个未改动期货采集器的既有 context 警告，不属于本发布 |
+| 差异审计 | 两仓 `git diff --check` 通过；无 `cmd_2`、BDX 或其他项目工作区改动混入 | 本地 Git 与路径白名单证据 |
+
+生产复核时应确认两个宝塔进程为单实例，启动日志中的 retention 最终收敛为 `status=ok`，五家普通市场/公告与各专区源持续刷新，且 `mexc_web_spot_candidates` 无数据库约束错误。用户已确认当前运行正常；本轮不补造未提供的现场日志。
+
+#### 回滚
+
+1. 在宝塔中按已核实的任务标识、命令、CWD 和 PID，只停止 `spot_listing_watcher` 与 `listing_channel_watcher`。
+2. 恢复上一版 Laravel、前端静态目录及 Go 源码/binary；不触碰 `cmd_2`、Redis 或其他行情进程。
+3. 索引回滚使用 `2026-09-02-88-drop-spot-listing-retention-indexes.sql`；`product_scope` 回滚只有在确认不存在 `cex_spot` 行后才使用 `2026-09-02-89-rollback-cex-spot-channel-items.sql`。
+4. 默认保留 15 张 `spot_listing_*` 表、身份基线和生产发现数据；不执行 `DROP`、`TRUNCATE` 或 `FLUSHDB`。
+5. 按 [`docs/runbooks/spot-listing-discovery-release.md`](docs/runbooks/spot-listing-discovery-release.md) 复核页面、源健康和原系统稳定性，并补录生产现场证据。
+
+#### 结果与遗留审计项
+
+- 最终状态：已部署，用户确认线上运行。
+- 已知异常：无用户报告的当前运行异常。
+- 待补证据：精确部署窗口、实施账号、备份路径、四条 SQL/postflight 输出、前端生产包 SHA-256、Go binary SHA-256、宝塔任务标识/PID 与启动 retention 日志。
+
 ### 2026-09-01 / CM-20260901-SPOT-LISTING-DISCOVERY-V1 / 新币雷达 1.0
 
 #### 基本信息
