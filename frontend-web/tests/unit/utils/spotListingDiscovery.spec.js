@@ -70,6 +70,7 @@ function channelHealth() {
     [3, "OKX", "tokenized_security", "证券 / RWA", "okx_tokenized_rwa", "OKX 代币化资产（含股票 / ETF）", "代币化资产（含股票 / ETF）"],
     [4, "Gate", "managed_onchain", "链上早期市场", "gate_alpha", "Gate Alpha", "Alpha"],
     [4, "Gate", "tokenized_security", "证券 / RWA", "gate_tokenized_assets", "Gate 代币化资产 / RWA", "代币化资产 / RWA"],
+    [5, "MEXC", "cex_spot", "CEX 现货", "mexc_web_spot_candidates", "MEXC 现货网页目录", "网页目录"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_metals", "MEXC 贵金属专区", "贵金属"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_pre_ipo", "MEXC 盘前股权专区", "盘前股权"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_xstocks", "MEXC xStocks · 代币化股票", "xStocks"],
@@ -259,6 +260,7 @@ describe("spot listing discovery contract", () => {
     ["mexc_etf", "MEXC ETF / 基金专区", "ETF / 基金"],
     ["mexc_leveraged_etf", "MEXC 杠杆 ETF 专区", "杠杆 ETF"],
     ["mexc_st", "MEXC ST 观察", "ST 观察"],
+    ["mexc_web_spot_candidates", "MEXC 现货网页目录", "网页目录"],
     ["gate_st", "Gate ST 观察", "ST 观察"],
     ["gate_ondo_theme", "Gate Ondo 主题", "Ondo 主题"],
     ["gate_forex", "Gate 外汇 / Forex 区", "外汇 / Forex 区"],
@@ -568,6 +570,14 @@ describe("spot listing discovery contract", () => {
     const valid = payload();
     expect(isSpotListingOperationsResponse(valid)).toBe(true);
     expect(
+      isSpotListingOperationsResponse({
+        ...valid,
+        channel_health: valid.channel_health.filter(
+          source => source.listing_channel !== "mexc_web_spot_candidates"
+        )
+      })
+    ).toBe(false);
+    expect(
       isSpotListingOperationsResponse({ ...valid, channel_health: undefined })
     ).toBe(false);
     expect(
@@ -767,6 +777,14 @@ describe("spot listing discovery contract", () => {
     const channels = channelHealth();
     expect(discoveryCoverageState(sources, channels)).toBe("healthy");
     expect(hasDegradedDiscoveryCoverage(sources, channels)).toBe(false);
+    expect(
+      discoveryCoverageState(
+        sources,
+        channels.filter(
+          source => source.listing_channel !== "mexc_web_spot_candidates"
+        )
+      )
+    ).toBe("initializing");
 
     sources[1] = { ...sources[1], announcement_state: "stale" };
     expect(hasDegradedDiscoveryCoverage(sources, channels)).toBe(true);

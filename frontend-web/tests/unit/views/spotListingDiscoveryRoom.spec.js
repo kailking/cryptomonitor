@@ -33,6 +33,7 @@ function expectedChannelHealth() {
     [3, "OKX", "tokenized_security", "证券 / RWA", "okx_tokenized_rwa", "OKX 代币化资产（含股票 / ETF）", "代币化资产（含股票 / ETF）"],
     [4, "Gate", "managed_onchain", "链上早期市场", "gate_alpha", "Gate Alpha", "Alpha"],
     [4, "Gate", "tokenized_security", "证券 / RWA", "gate_tokenized_assets", "Gate 代币化资产 / RWA", "代币化资产 / RWA"],
+    [5, "MEXC", "cex_spot", "CEX 现货", "mexc_web_spot_candidates", "MEXC 现货网页目录", "网页目录"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_metals", "MEXC 贵金属专区", "贵金属"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_pre_ipo", "MEXC 盘前股权专区", "盘前股权"],
     [5, "MEXC", "tokenized_security", "证券 / RWA", "mexc_xstocks", "MEXC xStocks · 代币化股票", "xStocks"],
@@ -627,6 +628,64 @@ describe("spot listing discovery room", () => {
     });
 
     expect(vm.selectedOperationKey).toBe(upcoming.operation_key);
+    expect(vm.selectionLocked).toBe(false);
+  });
+
+  test("unlocks a selected project when it becomes disabled and advances to the next mission", () => {
+    const vm = context();
+    const disabled = operation("instrument:terminal", {
+      exchange_status: "disabled",
+      operation_group: "disabled"
+    });
+    const upcoming = operation("instrument:next", {
+      planned_start_at_ms: disabled.planned_start_at_ms + 60000
+    });
+    vm.selectedOperationKey = disabled.operation_key;
+    vm.selectionLocked = true;
+
+    vm.reconcileSelection({
+      operations: [disabled, upcoming],
+      selected_operation_key: disabled.operation_key
+    });
+
+    expect(vm.selectedOperationKey).toBe(upcoming.operation_key);
+    expect(vm.selectionLocked).toBe(false);
+  });
+
+  test("clears a locked project that becomes terminal when no future mission remains", () => {
+    const vm = context();
+    vm.nowMs = 2000000000000;
+    const trading = operation("instrument:terminal", {
+      planned_start_at_ms: vm.nowMs - 1000,
+      exchange_status: "trading",
+      operation_group: "trading"
+    });
+    vm.selectedOperationKey = trading.operation_key;
+    vm.selectionLocked = true;
+
+    vm.reconcileSelection({
+      operations: [trading],
+      selected_operation_key: trading.operation_key
+    });
+
+    expect(vm.selectedOperationKey).toBe("");
+    expect(vm.selectionLocked).toBe(false);
+  });
+
+  test("does not promote a disabled server selection into the primary radar", () => {
+    const vm = context();
+    const disabled = operation("instrument:disabled", {
+      exchange_status: "disabled",
+      operation_group: "disabled"
+    });
+
+    vm.reconcileSelection({
+      operations: [disabled],
+      selected_operation_key: disabled.operation_key
+    });
+
+    expect(vm.selectedOperationKey).toBe("");
+    expect(Page.computed.displayOperation.call(vm)).toBeNull();
     expect(vm.selectionLocked).toBe(false);
   });
 

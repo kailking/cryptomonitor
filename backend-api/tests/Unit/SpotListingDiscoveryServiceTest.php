@@ -178,6 +178,8 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $operations = [];
         foreach ($result['operations'] as $operation) {
             $operations[$operation['operation_key']] = $operation;
+            $this->assertArrayHasKey('discovery_alert', $operation);
+            $this->assertArrayNotHasKey('_discovery_evidence', $operation);
             foreach ([
                 'depth_confirmation_state',
                 'depth_confirmed_at_ms',
@@ -823,7 +825,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
         );
     }
 
-    public function test_schedule_projection_never_uses_a_disabled_instrument(): void
+    public function test_schedule_projection_never_uses_or_exposes_a_disabled_instrument(): void
     {
         $plannedStart = self::NOW_MS + 3600000;
         $instrumentId = $this->insertInstrument(8, 'DISABLEDUSDT', [
@@ -836,12 +838,9 @@ class SpotListingDiscoveryServiceTest extends TestCase
 
         $result = $this->service()->operations([], self::NOW_MS);
 
-        $this->assertSame(1, $result['total']);
-        $this->assertSame(
-            'instrument:'.$instrumentId,
-            $result['operations'][0]['operation_key']
-        );
-        $this->assertNull($result['operations'][0]['announcement_event_id']);
+        $this->assertSame(0, $result['total']);
+        $this->assertSame([], $result['operations']);
+        $this->assertNull($result['selected_operation_key']);
         $this->assertSame(
             [],
             $this->service()->announcementDetail($announcementId)['pairs']
@@ -1095,8 +1094,9 @@ class SpotListingDiscoveryServiceTest extends TestCase
         ];
 
         $expectedAnnouncementKeys = [];
+        $expectedInstrumentKeys = [];
         foreach ($cases as $case) {
-            $this->insertInstrument(
+            $instrumentId = $this->insertInstrument(
                 $case['platform_id'],
                 $case['symbol'],
                 [
@@ -1129,14 +1129,20 @@ class SpotListingDiscoveryServiceTest extends TestCase
             );
             $expectedAnnouncementKeys[$case['symbol']] =
                 'announcement:'.$announcementId.':'.$case['symbol'];
+            $expectedInstrumentKeys[$case['symbol']] =
+                'instrument:'.$instrumentId;
         }
 
         $result = $this->service()->operations([], self::NOW_MS);
         $operations = collect($result['operations'])->keyBy('operation_key');
 
-        $this->assertSame(4, $result['total']);
+        $this->assertSame(2, $result['total']);
         foreach ($expectedAnnouncementKeys as $symbol => $operationKey) {
             $this->assertArrayHasKey($operationKey, $operations);
+            $this->assertArrayNotHasKey(
+                $expectedInstrumentKeys[$symbol],
+                $operations
+            );
             $operation = $operations[$operationKey];
             $this->assertNull($operation['instrument_id']);
             $this->assertSame('unknown', $operation['exchange_status']);
@@ -1310,7 +1316,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
             $operation['lifecycle'][0]['key']
         );
         $this->assertSame('基线盘点', $operation['lifecycle'][0]['label']);
-        $this->assertCount(9, $result['channel_health']);
+        $this->assertCount(10, $result['channel_health']);
         $this->assertSame(
             'binance_alpha',
             $result['channel_health'][0]['listing_channel']
@@ -1919,6 +1925,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
                 'gate_tokenized_assets',
                 'mexc_metals',
                 'mexc_pre_ipo',
+                'mexc_web_spot_candidates',
                 'mexc_xstocks',
                 'kucoin_alpha',
                 'kucoin_stocks',
@@ -1927,7 +1934,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
         );
         $this->assertSame('managed_onchain', $result['channel_health'][0]['product_scope']);
         $this->assertSame('managed_onchain', $result['channel_health'][2]['product_scope']);
-        foreach ([1, 3, 4, 5, 6, 8] as $index) {
+        foreach ([1, 3, 4, 5, 7, 9] as $index) {
             $this->assertSame(
                 'tokenized_security',
                 $result['channel_health'][$index]['product_scope']
@@ -1937,8 +1944,10 @@ class SpotListingDiscoveryServiceTest extends TestCase
                 $result['channel_health'][$index]['product_scope_text']
             );
         }
-        $this->assertSame('channel_source', $result['channel_health'][7]['product_scope']);
-        $this->assertSame('专区数据源', $result['channel_health'][7]['product_scope_text']);
+        $this->assertSame('cex_spot', $result['channel_health'][6]['product_scope']);
+        $this->assertSame('CEX 现货', $result['channel_health'][6]['product_scope_text']);
+        $this->assertSame('channel_source', $result['channel_health'][8]['product_scope']);
+        $this->assertSame('专区数据源', $result['channel_health'][8]['product_scope_text']);
     }
 
     public function test_mexc_pre_ipo_bracket_symbol_is_projected_as_tokenized_not_spot(): void
@@ -2232,6 +2241,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
                 'gate_tokenized_assets',
                 'mexc_metals',
                 'mexc_pre_ipo',
+                'mexc_web_spot_candidates',
                 'mexc_xstocks',
                 'kucoin_alpha',
                 'kucoin_stocks',
@@ -2672,6 +2682,399 @@ class SpotListingDiscoveryServiceTest extends TestCase
         );
     }
 
+    /**
+     * @dataProvider suddenListingDetectionBoundaryProvider
+     */
+    public function test_sudden_listing_alert_obeys_detection_window_boundaries(
+        int $leadMs,
+        bool $expected
+    ): void {
+        $detectedAt = self::NOW_MS - 1000;
+        $plannedStart = $detectedAt + $leadMs;
+        $instrumentId = $this->insertInstrument(5, 'SUDDENUSDT', [
+            'exchange_status' => 'pre_open',
+            'first_seen_at_ms' => $detectedAt,
+            'trading_start_at_ms' => $plannedStart,
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operation = collect($result['operations'])->firstWhere(
+            'operation_key',
+            'instrument:'.$instrumentId
+        );
+
+        $this->assertNotNull($operation);
+        $this->assertArrayNotHasKey('_discovery_evidence', $operation);
+        if (!$expected) {
+            $this->assertNull($operation['discovery_alert']);
+            return;
+        }
+        $this->assertSame([
+            'kind' => 'sudden_listing',
+            'detected_at_ms' => $detectedAt,
+            'expires_at_ms' => $detectedAt + 300000,
+            'lead_ms' => $leadMs,
+            'pulse_until_ms' => $detectedAt + 90000,
+        ], $operation['discovery_alert']);
+    }
+
+    public function suddenListingDetectionBoundaryProvider(): array
+    {
+        return [
+            'exactly fifteen minutes before opening' => [900000, true],
+            'one millisecond too early' => [900001, false],
+            'exactly ten minutes after opening' => [-600000, true],
+            'one millisecond too late' => [-600001, false],
+        ];
+    }
+
+    public function test_sudden_listing_alert_rejects_old_and_untimed_markets(): void
+    {
+        $oldId = $this->insertInstrument(5, 'OLDALERTUSDT', [
+            'exchange_status' => 'trading',
+            'first_seen_at_ms' => self::NOW_MS - (24 * 3600000),
+            'trading_start_at_ms' => self::NOW_MS - 3600000,
+        ]);
+        $untimedId = $this->insertInstrument(5, 'NOALERTTIMEUSDT', [
+            'exchange_status' => 'pre_open',
+            'first_seen_at_ms' => self::NOW_MS - 1000,
+            'trading_start_at_ms' => null,
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operations = collect($result['operations'])->keyBy('operation_key');
+
+        $this->assertNull(
+            $operations['instrument:'.$oldId]['discovery_alert']
+        );
+        $this->assertNull(
+            $operations['instrument:'.$untimedId]['discovery_alert']
+        );
+    }
+
+    public function test_sudden_listing_alert_expires_exactly_five_minutes_after_detection(): void
+    {
+        $detectedAt = self::NOW_MS - 300000;
+        $instrumentId = $this->insertInstrument(5, 'EXPIREDALERTUSDT', [
+            'exchange_status' => 'trading',
+            'first_seen_at_ms' => $detectedAt,
+            'trading_start_at_ms' => $detectedAt + 60000,
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operation = collect($result['operations'])->firstWhere(
+            'operation_key',
+            'instrument:'.$instrumentId
+        );
+
+        $this->assertNotNull($operation);
+        $this->assertNull($operation['discovery_alert']);
+    }
+
+    public function test_sudden_listing_alert_rejects_baseline_and_disabled_rows(): void
+    {
+        $plannedStart = self::NOW_MS + 60000;
+        $disabledId = $this->insertInstrument(5, 'DISABLEDALERTUSDT', [
+            'exchange_status' => 'disabled',
+            'first_seen_at_ms' => self::NOW_MS - 1000,
+            'trading_start_at_ms' => $plannedStart,
+        ]);
+        $baselineId = $this->insertTokenizedChannelItem(
+            3,
+            'okx_tokenized_rwa',
+            'BASELINEALERT',
+            'BASELINEALERT-USDT',
+            'pre_open',
+            $plannedStart,
+            self::NOW_MS - 500,
+            true
+        );
+        DB::table('spot_listing_channel_events')->insert([
+            'channel_item_id' => $baselineId,
+            'platform_id' => 3,
+            'listing_channel' => 'okx_tokenized_rwa',
+            'provider_item_id' => 'BASELINEALERT-USDT',
+            'revision' => 1,
+            'event_type' => 'discovered',
+            'severity' => 'warning',
+            'is_alert' => 1,
+            'event_at_ms' => self::NOW_MS - 1000,
+            'idempotency_key' => hash('sha256', 'baseline-alert-discovered'),
+            'payload_json' => '{}',
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operations = collect($result['operations'])->keyBy('operation_key');
+
+        $this->assertArrayNotHasKey('instrument:'.$disabledId, $operations);
+        $this->assertNull(
+            $operations['channel:'.$baselineId]['discovery_alert']
+        );
+    }
+
+    public function test_sudden_listing_channel_alert_requires_a_discovered_event(): void
+    {
+        $plannedStart = self::NOW_MS + 60000;
+        $detectedAt = self::NOW_MS - 1000;
+        $discoveredId = $this->insertTokenizedChannelItem(
+            3,
+            'okx_tokenized_rwa',
+            'CHANNELALERT',
+            'CHANNELALERT-USDT',
+            'pre_open',
+            $plannedStart,
+            self::NOW_MS - 500
+        );
+        $stateOnlyId = $this->insertTokenizedChannelItem(
+            3,
+            'okx_tokenized_rwa',
+            'STATEONLY',
+            'STATEONLY-USDT',
+            'pre_open',
+            $plannedStart,
+            self::NOW_MS - 500
+        );
+        DB::table('spot_listing_channel_events')->insert([
+            'channel_item_id' => $discoveredId,
+            'platform_id' => 3,
+            'listing_channel' => 'okx_tokenized_rwa',
+            'provider_item_id' => 'CHANNELALERT-USDT',
+            'revision' => 1,
+            'event_type' => 'discovered',
+            'severity' => 'warning',
+            'is_alert' => 1,
+            'event_at_ms' => $detectedAt,
+            'idempotency_key' => hash('sha256', 'channel-alert-discovered'),
+            'payload_json' => '{}',
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operations = collect($result['operations'])->keyBy('operation_key');
+
+        $this->assertSame([
+            'kind' => 'sudden_listing',
+            'detected_at_ms' => $detectedAt,
+            'expires_at_ms' => $detectedAt + 300000,
+            'lead_ms' => 61000,
+            'pulse_until_ms' => $detectedAt + 90000,
+        ], $operations['channel:'.$discoveredId]['discovery_alert']);
+        $this->assertNull(
+            $operations['channel:'.$stateOnlyId]['discovery_alert']
+        );
+    }
+
+    public function test_mexc_web_spot_candidate_merges_and_uses_channel_discovery_alert(): void
+    {
+        $plannedStart = self::NOW_MS + 60000;
+        $detectedAt = self::NOW_MS - 1000;
+        $instrumentId = $this->insertInstrument(5, 'WEBFINDUSDT', [
+            'listing_channel' => 'mexc_assessment',
+            'exchange_status' => 'pre_open',
+            'first_seen_at_ms' => self::NOW_MS - 600000,
+            'trading_start_at_ms' => $plannedStart,
+        ], false);
+        $channelId = (int) DB::table('spot_listing_channel_items')->insertGetId([
+            'platform_id' => 5,
+            'product_scope' => 'cex_spot',
+            'listing_channel' => 'mexc_web_spot_candidates',
+            'provider_item_id' => 'WEBFINDUSDT',
+            'display_base' => 'WEBFIND',
+            'display_name' => 'Web Find',
+            'quote_currency' => 'USDT',
+            'exchange_symbol' => 'WEBFINDUSDT',
+            'chain_id' => null,
+            'contract_address' => null,
+            'exchange_status' => 'pre_open',
+            'listing_start_at_ms' => $plannedStart,
+            'first_seen_at_ms' => $detectedAt,
+            'last_seen_at_ms' => self::NOW_MS - 500,
+            'source_url' => 'https://www.mexc.com/zh-MY/exchange/WEBFIND_USDT',
+            'source_hash' => str_repeat('1', 64),
+            'revision' => 1,
+            'is_present' => 1,
+            'is_baseline' => 0,
+            'metadata_json' => '{}',
+        ]);
+        DB::table('spot_listing_channel_events')->insert([
+            'channel_item_id' => $channelId,
+            'platform_id' => 5,
+            'listing_channel' => 'mexc_web_spot_candidates',
+            'provider_item_id' => 'WEBFINDUSDT',
+            'revision' => 1,
+            'event_type' => 'discovered',
+            'severity' => 'warning',
+            'is_alert' => 1,
+            'event_at_ms' => $detectedAt,
+            'idempotency_key' => hash('sha256', 'mexc-web-find-discovered'),
+            'payload_json' => '{}',
+        ]);
+
+        $result = $this->service()->operations([], self::NOW_MS);
+
+        $this->assertSame(1, $result['total']);
+        $operation = $result['operations'][0];
+        $this->assertSame(
+            'instrument:'.$instrumentId,
+            $operation['operation_key']
+        );
+        $this->assertSame('WEBFINDUSDT', $operation['provider_item_id']);
+        $this->assertSame('mexc_assessment', $operation['listing_channel']);
+        $this->assertSame($detectedAt, $operation['discovery_alert']['detected_at_ms']);
+        $this->assertSame(61000, $operation['discovery_alert']['lead_ms']);
+    }
+
+    public function test_active_sudden_alert_is_not_truncated_after_fifty_newer_trading_rows(): void
+    {
+        $plannedStart = self::NOW_MS - 60000;
+        $detectedAt = self::NOW_MS - 1000;
+        $instrumentId = $this->insertInstrument(5, 'RELISTUSDT', [
+            'listing_channel' => 'mexc_assessment',
+            'exchange_status' => 'trading',
+            'first_seen_at_ms' => self::NOW_MS - (48 * 3600000),
+            'trading_start_at_ms' => $plannedStart,
+        ], false);
+        $channelId = (int) DB::table('spot_listing_channel_items')->insertGetId([
+            'platform_id' => 5,
+            'product_scope' => 'cex_spot',
+            'listing_channel' => 'mexc_web_spot_candidates',
+            'provider_item_id' => 'RELISTUSDT',
+            'display_base' => 'RELIST',
+            'display_name' => 'Relisted Pair',
+            'quote_currency' => 'USDT',
+            'exchange_symbol' => 'RELISTUSDT',
+            'chain_id' => null,
+            'contract_address' => null,
+            'exchange_status' => 'trading',
+            'listing_start_at_ms' => $plannedStart,
+            'first_seen_at_ms' => $detectedAt,
+            'last_seen_at_ms' => self::NOW_MS,
+            'source_url' => 'https://www.mexc.com/zh-MY/exchange/RELIST_USDT',
+            'source_hash' => str_repeat('2', 64),
+            'revision' => 1,
+            'is_present' => 1,
+            'is_baseline' => 0,
+            'metadata_json' => '{}',
+        ]);
+        DB::table('spot_listing_channel_events')->insert([
+            'channel_item_id' => $channelId,
+            'platform_id' => 5,
+            'listing_channel' => 'mexc_web_spot_candidates',
+            'provider_item_id' => 'RELISTUSDT',
+            'revision' => 1,
+            'event_type' => 'discovered',
+            'severity' => 'warning',
+            'is_alert' => 1,
+            'event_at_ms' => $detectedAt,
+            'idempotency_key' => hash('sha256', 'mexc-web-relist-discovered'),
+            'payload_json' => '{}',
+        ]);
+        for ($index = 0; $index < 55; ++$index) {
+            $this->insertInstrument(4, sprintf('FILL%02dUSDT', $index), [
+                'exchange_status' => 'trading',
+                'first_seen_at_ms' => self::NOW_MS - 3600000 - $index,
+                'trading_start_at_ms' => self::NOW_MS - 10000 - $index,
+            ]);
+        }
+
+        $result = $this->service()->operations(['limit' => 50], self::NOW_MS);
+
+        $this->assertSame(56, $result['total']);
+        $this->assertTrue($result['truncated']);
+        $operation = collect($result['operations'])->firstWhere(
+            'operation_key',
+            'instrument:'.$instrumentId
+        );
+        $this->assertNotNull($operation);
+        $this->assertSame(
+            $detectedAt,
+            $operation['discovery_alert']['detected_at_ms']
+        );
+    }
+
+    public function test_alert_saturation_preserves_the_next_automatic_mission(): void
+    {
+        $nextId = $this->insertInstrument(8, 'NEXTTASKUSDT', [
+            'exchange_status' => 'pre_open',
+            'first_seen_at_ms' => self::NOW_MS - 3600000,
+            'trading_start_at_ms' => self::NOW_MS + 3600000,
+        ]);
+        for ($index = 0; $index < 5; ++$index) {
+            $this->insertInstrument(5, sprintf('BURST%02dUSDT', $index), [
+                'exchange_status' => 'trading',
+                'first_seen_at_ms' => self::NOW_MS - 1000 - $index,
+                'trading_start_at_ms' => self::NOW_MS - 60000,
+            ]);
+        }
+
+        $result = $this->service()->operations(['limit' => 3], self::NOW_MS);
+
+        $this->assertSame(6, $result['total']);
+        $this->assertCount(3, $result['operations']);
+        $this->assertSame(
+            'instrument:'.$nextId,
+            $result['selected_operation_key']
+        );
+        $this->assertContains(
+            'instrument:'.$nextId,
+            array_column($result['operations'], 'operation_key')
+        );
+        $this->assertCount(2, array_filter(
+            $result['operations'],
+            function (array $operation): bool {
+                return $operation['discovery_alert'] !== null;
+            }
+        ));
+    }
+
+    public function test_sudden_listing_alert_uses_detection_not_announcement_publication(): void
+    {
+        $plannedStart = self::NOW_MS + (14 * 60000);
+        $announcementId = $this->insertAnnouncement(5, 'detected-alert', [
+            'published_at_ms' => self::NOW_MS - 120000,
+            'detected_at_ms' => self::NOW_MS - 60000,
+        ]);
+        $this->insertCandidate(
+            $announcementId,
+            1,
+            'DETECTEDUSDT',
+            $plannedStart
+        );
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operation = collect($result['operations'])->firstWhere(
+            'operation_key',
+            'announcement:'.$announcementId.':DETECTEDUSDT'
+        );
+
+        $this->assertNotNull($operation);
+        $this->assertSame(
+            self::NOW_MS - 60000,
+            $operation['discovery_alert']['detected_at_ms']
+        );
+        $this->assertSame(900000, $operation['discovery_alert']['lead_ms']);
+
+        $latePlannedStart = self::NOW_MS - 660001;
+        $lateAnnouncementId = $this->insertAnnouncement(5, 'late-detected-alert', [
+            'published_at_ms' => self::NOW_MS - 300000,
+            'detected_at_ms' => self::NOW_MS - 60000,
+        ]);
+        $this->insertCandidate(
+            $lateAnnouncementId,
+            1,
+            'LATEDETECTEDUSDT',
+            $latePlannedStart
+        );
+
+        $lateResult = $this->service()->operations([], self::NOW_MS);
+        $lateOperation = collect($lateResult['operations'])->firstWhere(
+            'operation_key',
+            'announcement:'.$lateAnnouncementId.':LATEDETECTEDUSDT'
+        );
+
+        $this->assertNotNull($lateOperation);
+        $this->assertNull($lateOperation['discovery_alert']);
+    }
+
     public function test_time_unknown_discovery_is_intelligence_not_automatic_mission(): void
     {
         $instrumentId = $this->insertInstrument(5, 'UNTIMEDUSDT', [
@@ -2915,7 +3318,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
         $this->assertSame([], $result['operations']);
     }
 
-    public function test_recent_relisting_schedule_survives_old_first_seen_and_tombstone(): void
+    public function test_recent_disabled_relisting_is_kept_only_in_the_audit_projection(): void
     {
         $instrumentId = $this->insertInstrument(5, 'RELISTEDUSDT', [
             'exchange_status' => 'disabled',
@@ -2958,25 +3361,134 @@ class SpotListingDiscoveryServiceTest extends TestCase
 
         $result = $this->service()->operations([], self::NOW_MS);
 
-        $this->assertSame(1, $result['total']);
-        $this->assertSame(
-            'instrument:'.$instrumentId,
-            $result['operations'][0]['operation_key']
-        );
-        $this->assertSame(
-            $plannedStart,
-            $result['operations'][0]['planned_start_at_ms']
-        );
+        $this->assertSame(0, $result['total']);
+        $this->assertSame([], $result['operations']);
+        $this->assertSame(0, $result['summary']['disabled']);
+        $this->assertNull($result['selected_operation_key']);
+
+        $history = $this->service()->paginate([
+            'exchange_status' => 'disabled',
+        ]);
+        $this->assertSame(1, $history['total']);
+        $this->assertSame($instrumentId, $history['data'][0]['id']);
         $this->assertSame(
             'disabled',
-            $result['operations'][0]['operation_group']
+            $this->service()->detail($instrumentId)['instrument'][
+                'exchange_status'
+            ]
+        );
+    }
+
+    public function test_new_future_announcement_survives_an_older_disabled_instrument(): void
+    {
+        $oldSeenAt = self::NOW_MS - (100 * 3600000);
+        $instrumentId = $this->insertInstrument(5, 'RETURNINGUSDT', [
+            'exchange_status' => 'disabled',
+            'first_seen_at_ms' => $oldSeenAt,
+            'trading_start_at_ms' => null,
+        ]);
+        $plannedStart = self::NOW_MS + 3600000;
+        $announcementId = $this->insertAnnouncement(
+            5,
+            'returning-future-listing',
+            [
+                'published_at_ms' => self::NOW_MS - 2000,
+                'detected_at_ms' => self::NOW_MS - 1000,
+            ]
+        );
+        $this->insertCandidate(
+            $announcementId,
+            1,
+            'RETURNINGUSDT',
+            $plannedStart
+        );
+        $this->insertAnnouncementLink(
+            $announcementId,
+            5,
+            'RETURNINGUSDT',
+            $instrumentId
+        );
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operationKey =
+            'announcement:'.$announcementId.':RETURNINGUSDT';
+
+        $this->assertSame(1, $result['total']);
+        $this->assertSame($operationKey, $result['selected_operation_key']);
+        $this->assertSame($operationKey, $result['operations'][0]['operation_key']);
+        $this->assertNull($result['operations'][0]['instrument_id']);
+        $this->assertSame('unknown', $result['operations'][0]['exchange_status']);
+        $this->assertSame($plannedStart, $result['operations'][0]['planned_start_at_ms']);
+        $this->assertSame('upcoming', $result['operations'][0]['operation_group']);
+
+        $history = $this->service()->paginate([
+            'exchange_status' => 'disabled',
+        ]);
+        $this->assertSame(1, $history['total']);
+        $this->assertSame($instrumentId, $history['data'][0]['id']);
+    }
+
+    public function test_new_future_announcement_does_not_merge_into_a_disabled_future_tombstone(): void
+    {
+        $staleFutureStart = self::NOW_MS + 1800000;
+        $instrumentId = $this->insertInstrument(5, 'RETURNLATERUSDT', [
+            'exchange_status' => 'disabled',
+            'first_seen_at_ms' => self::NOW_MS - 3600000,
+            'trading_start_at_ms' => $staleFutureStart,
+        ]);
+        $newStart = self::NOW_MS + 3600000;
+        $announcementId = $this->insertAnnouncement(
+            5,
+            'return-later-future-listing',
+            [
+                'published_at_ms' => self::NOW_MS - 2000,
+                'detected_at_ms' => self::NOW_MS - 1000,
+            ]
+        );
+        $this->insertCandidate(
+            $announcementId,
+            1,
+            'RETURNLATERUSDT',
+            $newStart
+        );
+        $this->insertAnnouncementLink(
+            $announcementId,
+            5,
+            'RETURNLATERUSDT',
+            $instrumentId
+        );
+
+        $result = $this->service()->operations([], self::NOW_MS);
+        $operationKey =
+            'announcement:'.$announcementId.':RETURNLATERUSDT';
+
+        $this->assertSame(1, $result['total']);
+        $this->assertSame($operationKey, $result['selected_operation_key']);
+        $this->assertSame($operationKey, $result['operations'][0]['operation_key']);
+        $this->assertNull($result['operations'][0]['instrument_id']);
+        $this->assertSame('unknown', $result['operations'][0]['exchange_status']);
+        $this->assertSame($newStart, $result['operations'][0]['planned_start_at_ms']);
+        $this->assertSame(
+            'announcement',
+            $result['operations'][0]['planned_start_source']
+        );
+        $this->assertSame('upcoming', $result['operations'][0]['operation_group']);
+
+        $history = $this->service()->paginate([
+            'exchange_status' => 'disabled',
+        ]);
+        $this->assertSame(1, $history['total']);
+        $this->assertSame($instrumentId, $history['data'][0]['id']);
+        $this->assertSame(
+            $staleFutureStart,
+            $history['data'][0]['trading_start_at_ms']
         );
     }
 
     public function test_historical_schedule_prefers_trading_event_at_the_same_time(): void
     {
         $instrumentId = $this->insertInstrument(5, 'PRIORITYUSDT', [
-            'exchange_status' => 'disabled',
+            'exchange_status' => 'trading',
             'trading_start_at_ms' => null,
         ]);
         $tradingStart = self::NOW_MS - 60000;
@@ -3021,7 +3533,7 @@ class SpotListingDiscoveryServiceTest extends TestCase
     public function test_newer_metadata_schedule_correction_supersedes_older_evidence(): void
     {
         $instrumentId = $this->insertInstrument(5, 'CORRECTEDUSDT', [
-            'exchange_status' => 'disabled',
+            'exchange_status' => 'trading',
             'trading_start_at_ms' => null,
         ]);
         $correctedStart = self::NOW_MS - 30000;

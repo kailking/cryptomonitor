@@ -14,6 +14,7 @@
         v-for="item in recentDiscoveries"
         :key="signalKey(item)"
         type="button"
+        :class="suddenListingClasses(item)"
         @click="openSignal(item)"
       >
         <span class="intelligence-strip__pair">
@@ -22,6 +23,10 @@
         </span>
         <b class="intelligence-strip__exchange">{{ platform(item) }}</b>
         <span class="intelligence-strip__classification">
+          <mark
+            v-if="suddenListingState(item) !== 'none'"
+            class="intelligence-strip__sudden-badge"
+          >突发上币</mark>
           <mark v-if="projectionNotice(item)">公告已修订/投影失效</mark>
           <listing-channel-badge :value="item" compact />
         </span>
@@ -98,6 +103,10 @@ import {
 } from "@/utils/spotListingDiscovery";
 import ListingChannelBadge from "./ListingChannelBadge.vue";
 
+const REALTIME_ANNOUNCEMENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SUDDEN_LISTING_PULSE_MS = 90 * 1000;
+const SUDDEN_LISTING_NOTICE_MS = 5 * 60 * 1000;
+
 export default {
   name: "SpotListingIntelligenceStrip",
   components: { ListingChannelBadge },
@@ -109,6 +118,10 @@ export default {
     operations: {
       type: Array,
       default: () => []
+    },
+    nowMs: {
+      type: Number,
+      default: () => Date.now()
     },
     announcementUnavailable: Boolean,
     announcementLoaded: Boolean,
@@ -126,6 +139,7 @@ export default {
     },
     unmatchedAnnouncements() {
       return this.announcements.filter(item => {
+        if (!this.isRealtimeAnnouncement(item)) return false;
         const id = item.announcement_event_id || item.id;
         return !this.operationAnnouncementIds.has(id);
       });
@@ -148,6 +162,7 @@ export default {
     },
     recentDiscoveries() {
       return [...this.operations, ...this.verifiedAnnouncements]
+        .filter(item => item.exchange_status !== "disabled")
         .slice()
         .sort((left, right) => this.signalTime(right) - this.signalTime(left))
         .slice(0, 4);
@@ -243,7 +258,14 @@ export default {
         : `announcement-${item.announcement_event_id || item.id}`;
     },
     signalTime(item) {
+      const alert = this.discoveryAlert(item);
+      const activeAlertTime = alert &&
+        this.nowMs >= alert.detected_at_ms &&
+        this.nowMs < alert.expires_at_ms
+        ? alert.detected_at_ms
+        : null;
       return [
+        activeAlertTime,
         item.first_seen_at_ms,
         item.detected_at_ms,
         item.published_at_ms
@@ -254,6 +276,58 @@ export default {
             : latest,
         0
       );
+    },
+    announcementReferenceTime(item) {
+      if (
+        Number.isSafeInteger(item.published_at_ms) &&
+        item.published_at_ms > 0
+      ) {
+        return item.published_at_ms;
+      }
+      return Number.isSafeInteger(item.detected_at_ms) && item.detected_at_ms > 0
+        ? item.detected_at_ms
+        : 0;
+    },
+    isRealtimeAnnouncement(item) {
+      const timestamp = this.announcementReferenceTime(item);
+      return timestamp >= this.nowMs - REALTIME_ANNOUNCEMENT_WINDOW_MS;
+    },
+    discoveryAlert(item) {
+      const alert = item && item.discovery_alert;
+      if (
+        !alert ||
+        typeof alert !== "object" ||
+        Array.isArray(alert) ||
+        alert.kind !== "sudden_listing" ||
+        !Number.isSafeInteger(alert.detected_at_ms) ||
+        !Number.isSafeInteger(alert.pulse_until_ms) ||
+        !Number.isSafeInteger(alert.expires_at_ms) ||
+        !Number.isSafeInteger(alert.lead_ms) ||
+        alert.detected_at_ms <= 0 ||
+        alert.pulse_until_ms !== alert.detected_at_ms + SUDDEN_LISTING_PULSE_MS ||
+        alert.expires_at_ms !== alert.detected_at_ms + SUDDEN_LISTING_NOTICE_MS
+      ) {
+        return null;
+      }
+      return alert;
+    },
+    suddenListingState(item) {
+      const alert = this.discoveryAlert(item);
+      if (
+        !alert ||
+        this.nowMs < alert.detected_at_ms ||
+        this.nowMs >= alert.expires_at_ms
+      ) {
+        return "none";
+      }
+      return this.nowMs < alert.pulse_until_ms ? "pulse" : "notice";
+    },
+    suddenListingClasses(item) {
+      const state = this.suddenListingState(item);
+      return {
+        "is-sudden-listing": state !== "none",
+        "is-sudden-listing-pulse": state === "pulse"
+      };
     },
     openSignal(item) {
       const announcementId = item.announcement_event_id || (
@@ -368,6 +442,17 @@ export default {
   }
   button:hover,
   button:focus-visible { background: #0e202d; outline: none; }
+  button.is-sudden-listing {
+    background: linear-gradient(90deg, rgba(255, 200, 87, 0.09), transparent 38%);
+    box-shadow: inset 3px 0 0 rgba(255, 200, 87, 0.9);
+  }
+  button.is-sudden-listing:hover,
+  button.is-sudden-listing:focus-visible {
+    background: linear-gradient(90deg, rgba(255, 200, 87, 0.14), #0e202d 45%);
+  }
+  button.is-sudden-listing-pulse {
+    animation: sudden-listing-pulse 1.8s ease-in-out infinite;
+  }
   &__pair { min-width: 0; }
   &__pair strong {
     display: block;
@@ -417,6 +502,13 @@ export default {
     background: rgba(255, 200, 87, 0.1);
     font-size: 12px;
   }
+  button mark.intelligence-strip__sudden-badge {
+    border-color: rgba(255, 200, 87, 0.82);
+    color: #ffe19a;
+    background: rgba(255, 200, 87, 0.15);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
   button time { color: #6f8998; font-family: Consolas, monospace; font-size: 12px; white-space: nowrap; }
   p { margin: 18px 4px; color: #6f8998; font-size: 12px; line-height: 1.6; }
   &__history-note { color: #657d8b; }
@@ -434,6 +526,21 @@ export default {
   }
   &__verification summary b { margin-left: 4px; color: #9bb0bb; }
   &__verification summary span { margin-left: 12px; color: #657d8b; }
+}
+
+@keyframes sudden-listing-pulse {
+  0%, 100% {
+    box-shadow: inset 3px 0 0 rgba(255, 200, 87, 0.82);
+  }
+  50% {
+    box-shadow:
+      inset 4px 0 0 rgba(255, 213, 112, 1),
+      inset 18px 0 30px rgba(255, 200, 87, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intelligence-strip button.is-sudden-listing-pulse { animation: none; }
 }
 
 @media (max-width: 1550px) and (min-width: 1051px) {

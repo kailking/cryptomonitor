@@ -4,6 +4,9 @@ import IntelligenceStrip from "@/components/SpotListingDiscovery/IntelligenceStr
 import RadarStage from "@/components/SpotListingDiscovery/RadarStage.vue";
 import SourceHealthStrip from "@/components/SpotListingDiscovery/SourceHealthStrip.vue";
 
+const fs = require("fs");
+const path = require("path");
+
 function operation(key, overrides = {}) {
   return {
     operation_key: key,
@@ -178,6 +181,63 @@ describe("spot listing mission routing", () => {
     expect(wrapper.text()).toContain("公告未给出精确时间");
   });
 
+  test("keeps announcements older than seven days out of every realtime intelligence lane", () => {
+    const nowMs = 2000000000000;
+    const oldPublishedAt = nowMs - 7 * 24 * 60 * 60 * 1000 - 1;
+    const oldVerified = {
+      id: 61,
+      announcement_event_id: 61,
+      platform_id: 8,
+      platform_text: "KuCoin",
+      title: "八天前的已核验公告",
+      published_at_ms: oldPublishedAt,
+      detected_at_ms: nowMs,
+      parse_confidence: 100,
+      pairs: [{ symbol: "OLDUSDT", quote_currency: "USDT" }]
+    };
+    const oldClue = {
+      id: 62,
+      announcement_event_id: 62,
+      platform_id: 4,
+      platform_text: "Gate",
+      title: "八天前的待核验公告",
+      published_at_ms: oldPublishedAt,
+      detected_at_ms: nowMs,
+      pairs: []
+    };
+    const boundary = {
+      id: 63,
+      announcement_event_id: 63,
+      platform_id: 5,
+      platform_text: "MEXC",
+      title: "七天窗口边界公告",
+      published_at_ms: nowMs - 7 * 24 * 60 * 60 * 1000,
+      detected_at_ms: nowMs,
+      announced_trading_start_at_ms: nowMs + 60000,
+      parse_confidence: 100,
+      pairs: [{ symbol: "EDGEUSDT", quote_currency: "USDT" }]
+    };
+    const wrapper = shallowMount(IntelligenceStrip, {
+      propsData: {
+        announcements: [oldVerified, oldClue, boundary],
+        operations: [],
+        nowMs,
+        operationsLoaded: true,
+        announcementLoaded: true
+      }
+    });
+
+    expect(wrapper.props("announcements")).toHaveLength(3);
+    expect(wrapper.vm.unmatchedAnnouncements.map(item => item.id)).toEqual([63]);
+    expect(wrapper.vm.verifiedAnnouncements.map(item => item.id)).toEqual([63]);
+    expect(wrapper.vm.verificationClues).toHaveLength(0);
+    expect(wrapper.vm.missingTimeAnnouncements).toHaveLength(0);
+    expect(wrapper.vm.recentDiscoveries.map(item => item.id)).toEqual([63]);
+    expect(wrapper.text()).toContain("七天窗口边界公告");
+    expect(wrapper.text()).not.toContain("八天前的已核验公告");
+    expect(wrapper.text()).not.toContain("八天前的待核验公告");
+  });
+
   test("keeps terminal missing-time records as a secondary statistic", () => {
     const historical = operation("instrument:history", {
       planned_start_at_ms: null,
@@ -196,6 +256,167 @@ describe("spot listing mission routing", () => {
     expect(wrapper.vm.historicalMissingTimeOperations).toHaveLength(1);
     expect(wrapper.text()).toContain("另有 1 项历史开盘记录缺时");
     expect(wrapper.text()).toContain("当前待开盘记录时间完整");
+  });
+
+  test("keeps recent trading discoveries but excludes disabled markets", () => {
+    const trading = operation("instrument:trading", {
+      exchange_status: "trading",
+      operation_group: "trading",
+      first_seen_at_ms: 2000000001000
+    });
+    const disabled = operation("instrument:disabled", {
+      symbol: "STOPUSDT",
+      base_currency: "STOP",
+      title: "STOP 已停止交易",
+      exchange_status: "disabled",
+      operation_group: "disabled",
+      first_seen_at_ms: 2000000002000
+    });
+    const wrapper = shallowMount(IntelligenceStrip, {
+      propsData: {
+        operations: [disabled, trading],
+        operationsLoaded: true,
+        announcementLoaded: true
+      }
+    });
+
+    expect(wrapper.vm.recentDiscoveries.map(item => item.operation_key)).toEqual([
+      trading.operation_key
+    ]);
+    expect(wrapper.text()).toContain("NEW / USDT");
+    expect(wrapper.text()).not.toContain("STOP / USDT");
+  });
+
+  test("shows a bounded sudden-listing notice only from explicit backend evidence", async () => {
+    const detectedAt = 2000000000000;
+    const sudden = operation("instrument:sudden", {
+      discovery_alert: {
+        kind: "sudden_listing",
+        detected_at_ms: detectedAt,
+        pulse_until_ms: detectedAt + 90 * 1000,
+        expires_at_ms: detectedAt + 5 * 60 * 1000,
+        lead_ms: 45000
+      }
+    });
+    const wrapper = shallowMount(IntelligenceStrip, {
+      propsData: {
+        operations: [sudden],
+        nowMs: detectedAt + 89 * 1000,
+        operationsLoaded: true,
+        announcementLoaded: true
+      }
+    });
+    const row = wrapper.find(".intelligence-strip__column button");
+
+    expect(row.classes()).toContain("is-sudden-listing");
+    expect(row.classes()).toContain("is-sudden-listing-pulse");
+    expect(row.find(".intelligence-strip__sudden-badge").text()).toBe("突发上币");
+    expect(row.element.children[0].classList).toContain("intelligence-strip__pair");
+    expect(row.element.children[1].classList).toContain("intelligence-strip__exchange");
+
+    await wrapper.setProps({ nowMs: detectedAt + 90 * 1000 });
+    const noticeRow = wrapper.find(".intelligence-strip__column button");
+    expect(noticeRow.classes()).toContain("is-sudden-listing");
+    expect(noticeRow.classes()).not.toContain("is-sudden-listing-pulse");
+    expect(noticeRow.find(".intelligence-strip__sudden-badge").exists()).toBe(true);
+
+    await wrapper.setProps({ nowMs: detectedAt + 5 * 60 * 1000 });
+    const ordinaryRow = wrapper.find(".intelligence-strip__column button");
+    expect(ordinaryRow.classes()).not.toContain("is-sudden-listing");
+    expect(ordinaryRow.classes()).not.toContain("is-sudden-listing-pulse");
+    expect(ordinaryRow.find(".intelligence-strip__sudden-badge").exists()).toBe(false);
+  });
+
+  test("sorts a relisted pair by its alert only while that alert is active", async () => {
+    const detectedAt = 2000000000000;
+    const relisted = operation("instrument:relisted", {
+      symbol: "BACKUSDT",
+      base_currency: "BACK",
+      first_seen_at_ms: detectedAt - 30 * 24 * 60 * 60 * 1000,
+      discovery_alert: {
+        kind: "sudden_listing",
+        detected_at_ms: detectedAt,
+        pulse_until_ms: detectedAt + 90 * 1000,
+        expires_at_ms: detectedAt + 5 * 60 * 1000,
+        lead_ms: 45000
+      }
+    });
+    const ordinary = Array.from({ length: 4 }, (_, index) =>
+      operation(`instrument:ordinary-${index}`, {
+        first_seen_at_ms: detectedAt - (index + 1) * 1000
+      })
+    );
+    const wrapper = shallowMount(IntelligenceStrip, {
+      propsData: {
+        operations: [...ordinary, relisted],
+        nowMs: detectedAt + 1000,
+        operationsLoaded: true,
+        announcementLoaded: true
+      }
+    });
+
+    expect(wrapper.vm.recentDiscoveries).toHaveLength(4);
+    expect(wrapper.vm.recentDiscoveries[0].operation_key).toBe(
+      relisted.operation_key
+    );
+    expect(wrapper.find(".intelligence-strip__pair strong").text()).toBe(
+      "BACK / USDT"
+    );
+
+    await wrapper.setProps({ nowMs: detectedAt + 5 * 60 * 1000 });
+    expect(
+      wrapper.vm.recentDiscoveries.map(item => item.operation_key)
+    ).not.toContain(relisted.operation_key);
+
+    await wrapper.setProps({
+      nowMs: detectedAt + 1000,
+      operations: [
+        ...ordinary,
+        {
+          ...relisted,
+          discovery_alert: {
+            ...relisted.discovery_alert,
+            expires_at_ms: detectedAt + 999999
+          }
+        }
+      ]
+    });
+    expect(
+      wrapper.vm.recentDiscoveries.map(item => item.operation_key)
+    ).not.toContain(relisted.operation_key);
+  });
+
+  test("does not infer a sudden listing from a recent first-seen timestamp", () => {
+    const nowMs = 2000000000000;
+    const ordinary = operation("instrument:ordinary", {
+      first_seen_at_ms: nowMs - 1000,
+      detected_at_ms: nowMs - 1000
+    });
+    const wrapper = shallowMount(IntelligenceStrip, {
+      propsData: {
+        operations: [ordinary],
+        nowMs,
+        operationsLoaded: true,
+        announcementLoaded: true
+      }
+    });
+    const row = wrapper.find(".intelligence-strip__column button");
+
+    expect(row.classes()).not.toContain("is-sudden-listing");
+    expect(row.find(".intelligence-strip__sudden-badge").exists()).toBe(false);
+  });
+
+  test("disables sudden-listing animation when reduced motion is requested", () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "src/components/SpotListingDiscovery/IntelligenceStrip.vue"
+      ),
+      "utf8"
+    );
+
+    expect(source).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
+    expect(source).toMatch(/is-sudden-listing-pulse \{ animation: none; \}/);
   });
 
   test("keeps already-live announcements without verified pairs in review clues", () => {

@@ -78,6 +78,7 @@
     <intelligence-strip
       :announcements="announcements"
       :operations="operations"
+      :now-ms="nowMs"
       :announcement-unavailable="announcementsUnavailable"
       :announcement-loaded="announcementsLoaded"
       :operations-loaded="operationsLoaded"
@@ -215,6 +216,7 @@ import {
   discoveryCoverageState,
   listingPairLabel,
   operationDisplayGroupMeta,
+  isDiscoveryTerminal,
   platformName,
   plannedTimeLabel,
   preferredCountdownMission,
@@ -636,10 +638,16 @@ export default {
       return fallback ? fallback.operation_key : "";
     },
     reconcileSelection(payload) {
-      const selectedStillExists = payload.operations.some(
+      const selected = payload.operations.find(
         item => item.operation_key === this.selectedOperationKey
       );
-      if (this.selectionLocked && selectedStillExists) return;
+      if (this.selectionLocked && selected) {
+        if (!isDiscoveryTerminal(selected)) return;
+        const next = preferredCountdownMission(payload.operations, this.nowMs);
+        this.selectedOperationKey = next ? next.operation_key : "";
+        this.selectionLocked = false;
+        return;
+      }
       this.selectedOperationKey = this.defaultDisplayOperationKey(payload);
       this.selectionLocked = false;
     },

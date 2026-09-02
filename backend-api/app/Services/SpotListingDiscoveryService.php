@@ -13,6 +13,10 @@ class SpotListingDiscoveryService
     private const PLATFORM_IDS = [2, 3, 4, 5, 8];
     private const MAX_QUERY_ROWS = 501;
     private const OPENING_SELECTION_GRACE_MS = 900000;
+    private const SUDDEN_LISTING_EARLY_WINDOW_MS = 900000;
+    private const SUDDEN_LISTING_LATE_WINDOW_MS = 600000;
+    private const DISCOVERY_ALERT_TTL_MS = 300000;
+    private const DISCOVERY_ALERT_PULSE_MS = 90000;
     private const CORE_OPERATION_TABLES = [
         'spot_listing_instruments',
         'spot_listing_events',
@@ -26,6 +30,7 @@ class SpotListingDiscoveryService
         'spot_listing_channel_events',
     ];
     private const LIFECYCLE_EVENT_TYPES = [
+        'discovered',
         'trading_enabled',
         'trading_disabled',
     ];
@@ -48,6 +53,7 @@ class SpotListingDiscoveryService
         [4, 'gate_tokenized_assets'],
         [5, 'mexc_metals'],
         [5, 'mexc_pre_ipo'],
+        [5, 'mexc_web_spot_candidates'],
         [5, 'mexc_xstocks'],
         [8, 'kucoin_alpha'],
         [8, 'kucoin_stocks'],
@@ -56,6 +62,7 @@ class SpotListingDiscoveryService
         'binance_bstocks' => [2, ''],
         'okx_tokenized_rwa' => [3, '-'],
         'gate_tokenized_assets' => [4, '_'],
+        'mexc_web_spot_candidates' => [5, ''],
         'mexc_xstocks' => [5, ''],
         'mexc_pre_ipo' => [5, ''],
         'mexc_metals' => [5, ''],
@@ -808,6 +815,15 @@ class SpotListingDiscoveryService
                     $pastBoundary,
                     $futureBoundary
                 ): bool {
+                    // A disabled market remains durable audit evidence, but it
+                    // is no longer an actionable listing mission. Apply this
+                    // only after every source has been merged so a newer
+                    // announcement can still create a separate future
+                    // occurrence from an older disabled instrument.
+                    if ($operation['operation_group'] === 'disabled') {
+                        return false;
+                    }
+
                     return $this->operationInWindow(
                         $operation,
                         $pastBoundary,
@@ -815,6 +831,16 @@ class SpotListingDiscoveryService
                     );
                 }
             ));
+            $operations = array_map(function (array $operation) use ($now): array {
+                $operation['discovery_alert'] = $this->discoveryAlert(
+                    $operation,
+                    $now
+                );
+                unset($operation['_discovery_evidence']);
+                unset($operation['_source_listing_channel']);
+
+                return $operation;
+            }, $operations);
             usort($operations, function (array $left, array $right) use ($now): int {
                 $leftRank = $this->operationSortRank($left, $now);
                 $rightRank = $this->operationSortRank($right, $now);
@@ -852,7 +878,11 @@ class SpotListingDiscoveryService
                 || $announcementSourceCount >= self::MAX_QUERY_ROWS
                 || count($channelItems) >= self::MAX_QUERY_ROWS
                 || $this->lastHydrationTruncated;
-            $operations = array_slice($operations, 0, $limit);
+            $operations = $this->limitOperationsWithDiscoveryAlerts(
+                $operations,
+                $limit,
+                $now
+            );
             $selectedOperationKey = null;
             foreach ($operations as $operation) {
                 if ($this->isAutomaticMission($operation, $now)) {
@@ -2145,6 +2175,18 @@ class SpotListingDiscoveryService
                     'trading_disabled',
                 ]);
         }, 'current_revision_evidence_at_ms');
+        $query->selectSub(function ($events): void {
+            // first_seen is useful catalogue state, but the immutable event is
+            // the authoritative proof that this worker actually discovered a
+            // non-baseline channel item.
+            $events->from(
+                'spot_listing_channel_events AS channel_discovery_events'
+            )->selectRaw('MIN(channel_discovery_events.event_at_ms)')
+                ->whereColumn(
+                    'channel_discovery_events.channel_item_id',
+                    'spot_listing_channel_items.id'
+                )->where('channel_discovery_events.event_type', 'discovered');
+        }, 'discovered_at_ms');
 
         return $query
             ->orderByRaw(
@@ -2186,9 +2228,28 @@ class SpotListingDiscoveryService
         $reactivatedAt = $item->recent_reactivated_at_ms === null
             ? null
             : (int) $item->recent_reactivated_at_ms;
-        $titleSuffix = (string) $item->product_scope === 'tokenized_security'
-            ? '代币化资产交易对发现'
-            : '早期市场发现';
+        $discoveredAt = $item->discovered_at_ms === null
+            ? null
+            : (int) $item->discovered_at_ms;
+        $discoveryEvidence = (bool) $item->is_baseline
+            ? []
+            : array_merge(
+                $this->discoveryEvidence(
+                    'channel_discovered',
+                    $discoveredAt
+                ),
+                $this->discoveryEvidence(
+                    'channel_detected',
+                    $reactivatedAt
+                )
+            );
+        if ((string) $item->product_scope === 'tokenized_security') {
+            $titleSuffix = '代币化资产交易对发现';
+        } elseif ((string) $item->product_scope === 'cex_spot') {
+            $titleSuffix = '现货交易对发现';
+        } else {
+            $titleSuffix = '早期市场发现';
+        }
         $title = $name === '' || strcasecmp($name, $base) === 0
             ? $base.' '.$titleSuffix
             : $name.' ('.$base.') '.$titleSuffix;
@@ -2224,6 +2285,8 @@ class SpotListingDiscoveryService
                 ? null
                 : (string) $item->contract_address,
             'is_baseline' => (bool) $item->is_baseline,
+            '_source_listing_channel' => (string) $item->listing_channel,
+            '_discovery_evidence' => $discoveryEvidence,
             'channel_observed_at_ms' => (int) $item->last_seen_at_ms,
             'channel_schedule_evidence_at_ms' =>
                 $item->current_revision_evidence_at_ms === null
@@ -2268,6 +2331,10 @@ class SpotListingDiscoveryService
                 $eventTimes['trading_disabled'] = $node['at_ms'];
             }
         }
+        $instrument['_discovery_evidence'] = array_merge(
+            $instrument['_discovery_evidence'] ?? [],
+            $channel['_discovery_evidence'] ?? []
+        );
         $instrument = array_merge(
             $instrument,
             $this->formatter->mergeListingMetadata($instrument, $channel)
@@ -2458,6 +2525,16 @@ class SpotListingDiscoveryService
         $reactivatedAt = ($instrument->recent_reactivated_at_ms ?? null) === null
             ? null
             : (int) $instrument->recent_reactivated_at_ms;
+        $discoveryEvidence = array_merge(
+            $this->discoveryEvidence(
+                'market_discovered',
+                $eventTimes['discovered'] ?? null
+            ),
+            $this->discoveryEvidence(
+                'market_detected',
+                $reactivatedAt
+            )
+        );
         $operation = array_merge([
             'operation_key' => 'instrument:'.(int) $instrument->id,
             'instrument_id' => (int) $instrument->id,
@@ -2482,6 +2559,7 @@ class SpotListingDiscoveryService
             'schedule_conflict_resolution' => null,
             'schedule_conflict_evidence' => null,
             'announcement_schedule_evidence_at_ms' => null,
+            '_discovery_evidence' => $discoveryEvidence,
         ], $this->formatter->listingMetadata($instrument));
         $operation['operation_group'] = $this->operationGroup(
             $operation['exchange_status'],
@@ -2517,6 +2595,13 @@ class SpotListingDiscoveryService
         $operation['announcement_source_url'] = $announcement['source_url'];
         $operation['published_at_ms'] = $announcement['published_at_ms'];
         $operation['detected_at_ms'] = $announcement['detected_at_ms'];
+        $operation['_discovery_evidence'] = array_merge(
+            $operation['_discovery_evidence'] ?? [],
+            $this->discoveryEvidence(
+                'announcement_detected',
+                $announcement['detected_at_ms']
+            )
+        );
         $operation['projection_updated_at_ms'] = max(
             (int) ($operation['projection_updated_at_ms'] ?? 0),
             (int) ($announcement['projection_updated_at_ms'] ?? 0),
@@ -2609,6 +2694,15 @@ class SpotListingDiscoveryService
             || (int) $announcementStart > $futureBoundary
         ) {
             return false;
+        }
+
+        // A disabled instrument is terminal evidence for an older market
+        // occurrence. Its persisted start can remain in the future when a
+        // scheduled market is withdrawn or paused, but that stale field must
+        // never absorb a newer valid listing announcement. Split the new
+        // occurrence before the final disabled-operation visibility filter.
+        if ($instrumentOperation['exchange_status'] === 'disabled') {
+            return true;
         }
 
         $instrumentStart = $instrumentOperation['planned_start_at_ms'];
@@ -2718,6 +2812,10 @@ class SpotListingDiscoveryService
                 (int) ($announcement['projection_updated_at_ms'] ?? 0),
                 (int) ($announcement['published_at_ms'] ?? 0)
             ) ?: null,
+            '_discovery_evidence' => $this->discoveryEvidence(
+                'announcement_detected',
+                $announcement['detected_at_ms']
+            ),
         ], $pairMetadata);
         $operation['operation_group'] = $this->operationGroup(
             $operation['exchange_status'],
@@ -2727,6 +2825,117 @@ class SpotListingDiscoveryService
         $operation['lifecycle'] = $this->lifecycle($operation, []);
 
         return $operation;
+    }
+
+    private function discoveryEvidence(string $kind, $detectedAt): array
+    {
+        if ($detectedAt === null || (int) $detectedAt <= 0) {
+            return [];
+        }
+
+        return [[
+            'kind' => $kind,
+            'at_ms' => (int) $detectedAt,
+        ]];
+    }
+
+    private function discoveryAlert(array $operation, int $now): ?array
+    {
+        $plannedStart = $operation['planned_start_at_ms'] ?? null;
+        if (
+            $plannedStart === null
+            || (int) $plannedStart <= 0
+            || !in_array(
+                $operation['planned_start_source'] ?? null,
+                ['exchange', 'announcement'],
+                true
+            )
+            || !empty($operation['is_baseline'])
+            || ($operation['exchange_status'] ?? null) === 'disabled'
+            || ($operation['operation_group'] ?? null) === 'disabled'
+        ) {
+            return null;
+        }
+
+        $marketEvidence = [];
+        $announcementEvidence = [];
+        $priorities = [
+            'market_discovered' => 0,
+            'channel_discovered' => 0,
+            'market_detected' => 1,
+            'channel_detected' => 1,
+            'announcement_detected' => 2,
+        ];
+        foreach ($operation['_discovery_evidence'] ?? [] as $evidence) {
+            if (!is_array($evidence)) {
+                continue;
+            }
+            $kind = (string) ($evidence['kind'] ?? '');
+            if (!array_key_exists($kind, $priorities)) {
+                continue;
+            }
+            $detectedAt = (int) ($evidence['at_ms'] ?? 0);
+            if ($detectedAt <= 0) {
+                continue;
+            }
+            $candidate = [
+                'kind' => $kind,
+                'at_ms' => $detectedAt,
+                'priority' => $priorities[$kind],
+            ];
+            if ($kind === 'announcement_detected') {
+                $announcementEvidence[] = $candidate;
+            } else {
+                $marketEvidence[] = $candidate;
+            }
+        }
+
+        // Market/channel lifecycle events describe an actual provider delta.
+        // Use announcement crawler detection only when no such evidence
+        // exists; published_at_ms is intentionally never considered here.
+        $evidencePool = $marketEvidence === []
+            ? $announcementEvidence
+            : $marketEvidence;
+        $windowStart = (int) $plannedStart
+            - self::SUDDEN_LISTING_EARLY_WINDOW_MS;
+        $windowEnd = (int) $plannedStart
+            + self::SUDDEN_LISTING_LATE_WINDOW_MS;
+        $eligible = [];
+        foreach ($evidencePool as $candidate) {
+            if (
+                $candidate['at_ms'] > $now
+                || $candidate['at_ms'] < $windowStart
+                || $candidate['at_ms'] > $windowEnd
+            ) {
+                continue;
+            }
+            $eligible[] = $candidate;
+        }
+        if ($eligible === []) {
+            return null;
+        }
+        usort($eligible, function (array $left, array $right): int {
+            if ($left['priority'] !== $right['priority']) {
+                return $left['priority'] <=> $right['priority'];
+            }
+
+            return $left['at_ms'] <=> $right['at_ms'];
+        });
+
+        $detectedAt = (int) $eligible[0]['at_ms'];
+        $expiresAt = $detectedAt + self::DISCOVERY_ALERT_TTL_MS;
+        if ($now >= $expiresAt) {
+            return null;
+        }
+
+        return [
+            'kind' => 'sudden_listing',
+            'detected_at_ms' => $detectedAt,
+            'expires_at_ms' => $expiresAt,
+            'lead_ms' => (int) $plannedStart - $detectedAt,
+            'pulse_until_ms' =>
+                $detectedAt + self::DISCOVERY_ALERT_PULSE_MS,
+        ];
     }
 
     private function operationGroup(string $status, $plannedStart, int $now): string
@@ -2839,6 +3048,71 @@ class SpotListingDiscoveryService
         ];
 
         return $ranks[$operation['operation_group']] ?? 99;
+    }
+
+    private function limitOperationsWithDiscoveryAlerts(
+        array $operations,
+        int $limit,
+        int $now
+    ): array {
+        if (count($operations) <= $limit) {
+            return $operations;
+        }
+
+        $alerts = [];
+        foreach ($operations as $index => $operation) {
+            $alert = $operation['discovery_alert'] ?? null;
+            if (
+                !is_array($alert)
+                || ($alert['kind'] ?? null) !== 'sudden_listing'
+                || !isset($alert['detected_at_ms'], $alert['expires_at_ms'])
+                || (int) $alert['expires_at_ms'] <= $now
+            ) {
+                continue;
+            }
+            $alerts[] = [
+                'index' => $index,
+                'detected_at_ms' => (int) $alert['detected_at_ms'],
+            ];
+        }
+        usort($alerts, function (array $left, array $right): int {
+            if ($left['detected_at_ms'] !== $right['detected_at_ms']) {
+                return $right['detected_at_ms'] <=> $left['detected_at_ms'];
+            }
+
+            return $left['index'] <=> $right['index'];
+        });
+
+        // Preserve the current automatic mission when the response has room,
+        // reserve the remaining slots for the newest bounded alerts, then fill
+        // in existing mission order. Sorting the chosen indexes restores that
+        // order, so alert retention cannot replace the active countdown.
+        $selected = [];
+        if ($limit > 1) {
+            foreach ($operations as $index => $operation) {
+                if ($this->isAutomaticMission($operation, $now)) {
+                    $selected[$index] = true;
+                    break;
+                }
+            }
+        }
+        foreach ($alerts as $alert) {
+            if (count($selected) >= $limit) {
+                break;
+            }
+            $selected[$alert['index']] = true;
+        }
+        foreach ($operations as $index => $_operation) {
+            if (count($selected) >= $limit) {
+                break;
+            }
+            $selected[$index] = true;
+        }
+        ksort($selected, SORT_NUMERIC);
+
+        return array_map(function (int $index) use ($operations): array {
+            return $operations[$index];
+        }, array_keys($selected));
     }
 
     private function operationInWindow(
@@ -3013,6 +3287,9 @@ class SpotListingDiscoveryService
 
     private function channelProductScope(string $channel): string
     {
+        if ($channel === 'mexc_web_spot_candidates') {
+            return 'cex_spot';
+        }
         if (in_array($channel, [
             'okx_tokenized_rwa',
             'gate_tokenized_assets',
@@ -3453,7 +3730,11 @@ class SpotListingDiscoveryService
 
     private function mergeableChannelMarketKey(array $operation): ?string
     {
-        $channel = (string) ($operation['listing_channel'] ?? '');
+        $channel = (string) (
+            $operation['_source_listing_channel']
+                ?? $operation['listing_channel']
+                ?? ''
+        );
         if (!isset(self::MERGEABLE_CEX_CHANNELS[$channel])) {
             return null;
         }
@@ -3466,10 +3747,19 @@ class SpotListingDiscoveryService
             (string) ($operation['exchange_symbol'] ?? '')
         ));
         $symbol = strtoupper(trim((string) ($operation['symbol'] ?? '')));
+        $ordinaryWebCandidate =
+            $channel === 'mexc_web_spot_candidates'
+            && ($operation['product_scope'] ?? null) === 'cex_spot';
         if (
             $platformId !== $expectedPlatform
-            || ($operation['product_scope'] ?? null) !== 'tokenized_security'
-            || ($operation['listing_cex'] ?? null) !== true
+            || (
+                !$ordinaryWebCandidate
+                && (
+                    ($operation['product_scope'] ?? null) !==
+                        'tokenized_security'
+                    || ($operation['listing_cex'] ?? null) !== true
+                )
+            )
             || $base === ''
             || $quote !== 'USDT'
             || $exchangeSymbol !== $base.$separator.$quote

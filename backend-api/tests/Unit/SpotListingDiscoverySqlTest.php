@@ -342,9 +342,37 @@ class SpotListingDiscoverySqlTest extends TestCase
         $this->assertStringNotContainsString('drop table', $rollback);
     }
 
+    public function test_startup_retention_indexes_have_read_only_postflight_and_scoped_rollback(): void
+    {
+        $forward = strtolower((string) file_get_contents(database_path(
+            'sql/2026-09-02-20-add-spot-listing-retention-indexes.sql'
+        )));
+        $postflight = strtolower((string) file_get_contents(database_path(
+            'sql/2026-09-02-21-postflight-spot-listing-retention-indexes.sql'
+        )));
+        $rollback = strtolower((string) file_get_contents(database_path(
+            'sql/2026-09-02-88-drop-spot-listing-retention-indexes.sql'
+        )));
+
+        foreach ([
+            'spot_listing_events_retention_time_index',
+            'spot_listing_channel_events_retention_time_index',
+        ] as $index) {
+            $this->assertStringContainsString('add index `'.$index.'`', $forward);
+            $this->assertStringContainsString("`index_name` = '".$index."'", $postflight);
+            $this->assertStringContainsString('drop index `'.$index.'`', $rollback);
+        }
+        $this->assertSame(2, substr_count($forward, '(`event_at_ms`, `id`)'));
+        foreach (['insert ', 'update ', 'delete ', 'alter ', 'drop ', 'truncate '] as $mutation) {
+            $this->assertStringNotContainsString($mutation, $postflight);
+        }
+        $this->assertStringNotContainsString('drop table', $rollback);
+    }
+
     public function test_rollbacks_drop_only_discovery_tables_in_dependency_order(): void
     {
         $paths = [
+            '2026-09-02-88-drop-spot-listing-retention-indexes.sql',
             '2026-08-31-89-drop-spot-listing-event-type-time-index.sql',
             '2026-08-28-86-drop-channel-identity-progress.sql',
             '2026-08-28-87-drop-announcement-poll-health.sql',

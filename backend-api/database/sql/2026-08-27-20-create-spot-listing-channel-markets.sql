@@ -120,6 +120,8 @@ CREATE TABLE `spot_listing_channel_events` (
     (`channel_item_id`, `event_at_ms`, `id`),
   KEY `spot_listing_channel_events_channel_time_index`
     (`platform_id`, `listing_channel`, `event_at_ms`, `id`),
+  KEY `spot_listing_channel_events_retention_time_index`
+    (`event_at_ms`, `id`),
   CONSTRAINT `spot_listing_channel_events_item_fk`
     FOREIGN KEY (`channel_item_id`) REFERENCES `spot_listing_channel_items` (`id`)
     ON DELETE RESTRICT,

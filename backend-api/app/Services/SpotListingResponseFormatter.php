@@ -38,6 +38,7 @@ class SpotListingResponseFormatter
         'mexc_kickstarter' => 'MEXC Kickstarter',
         'mexc_on_chain' => 'MEXC On-Chain',
         'mexc_pre_market' => 'MEXC 盘前市场',
+        'mexc_web_spot_candidates' => 'MEXC 现货网页目录',
         'binance_alpha' => 'Binance Alpha',
         'binance_pre_market' => 'Binance 盘前现货',
         'binance_seed' => 'Binance Seed 标签',
@@ -83,6 +84,7 @@ class SpotListingResponseFormatter
         'mexc_kickstarter' => 'Kickstarter',
         'mexc_on_chain' => 'On-Chain',
         'mexc_pre_market' => '盘前市场',
+        'mexc_web_spot_candidates' => '网页目录',
         'binance_alpha' => 'Alpha',
         'binance_pre_market' => '盘前现货',
         'binance_seed' => 'Seed',
@@ -443,6 +445,13 @@ class SpotListingResponseFormatter
     {
         if ($metadata['listing_channel'] === 'special_unclassified') {
             return 0;
+        }
+        if ($metadata['listing_channel'] === 'mexc_web_spot_candidates') {
+            // The browser catalogue is an earlier discovery witness, not the
+            // authority for product classification. Once exchangeInfo or an
+            // announcement supplies a normal/zone classification, keep that
+            // richer market metadata while retaining the web-source tag.
+            return 50;
         }
         $scopePriorities = [
             'cex_special_orderbook' => 600,

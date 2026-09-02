@@ -183,11 +183,17 @@ export default {
 
   &__list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     margin: 0;
     padding: 0;
     list-style: none;
+    scrollbar-color: #2a5264 #08131f;
+    scrollbar-width: thin;
   }
+  &__list::-webkit-scrollbar { width: 6px; }
+  &__list::-webkit-scrollbar-track { background: #08131f; }
+  &__list::-webkit-scrollbar-thumb { border-radius: 3px; background: #2a5264; }
   &__limit {
     display: block;
     padding: 10px 12px;
@@ -279,6 +285,12 @@ export default {
     font-size: 13px;
     line-height: 1.6;
     text-align: center;
+  }
+}
+
+@media (min-width: 1281px) {
+  .discovery-queue {
+    height: 560px;
   }
 }
 </style>

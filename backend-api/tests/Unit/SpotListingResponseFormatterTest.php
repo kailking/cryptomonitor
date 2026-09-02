@@ -159,6 +159,38 @@ class SpotListingResponseFormatterTest extends TestCase
         }
     }
 
+    public function test_mexc_web_candidate_is_visible_but_never_overrides_market_classification(
+    ): void
+    {
+        $formatter = new SpotListingResponseFormatter();
+        $candidate = [
+            'product_scope' => 'cex_spot',
+            'listing_channel' => 'mexc_web_spot_candidates',
+            'listing_tags' => ['mexc_web_spot_candidates'],
+        ];
+
+        $candidateOnly = $formatter->mergeListingMetadata($candidate);
+        $this->assertSame(
+            'MEXC 现货网页目录',
+            $candidateOnly['listing_channel_text']
+        );
+        $this->assertSame('网页目录', $candidateOnly['listing_tags'][0]['text']);
+
+        foreach (['standard', 'mexc_assessment', 'mexc_innovation'] as $channel) {
+            $merged = $formatter->mergeListingMetadata([
+                'product_scope' => 'cex_spot',
+                'listing_channel' => $channel,
+                'listing_tags' => [$channel],
+            ], $candidate);
+
+            $this->assertSame($channel, $merged['listing_channel']);
+            $this->assertContains(
+                'mexc_web_spot_candidates',
+                array_column($merged['listing_tags'], 'code')
+            );
+        }
+    }
+
     public function test_legacy_mexc_meme_plus_title_restores_special_product_metadata(): void
     {
         $row = (object) [

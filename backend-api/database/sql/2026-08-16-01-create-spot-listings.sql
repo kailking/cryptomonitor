@@ -82,6 +82,7 @@ CREATE TABLE `spot_listing_events` (
   KEY `spot_listing_events_instrument_time_index`
     (`instrument_id`, `event_at_ms`, `id`),
   KEY `spot_listing_events_platform_time_index` (`platform_id`, `event_at_ms`),
+  KEY `spot_listing_events_retention_time_index` (`event_at_ms`, `id`),
   CONSTRAINT `spot_listing_events_instrument_fk`
     FOREIGN KEY (`instrument_id`) REFERENCES `spot_listing_instruments` (`id`)
     ON DELETE RESTRICT,

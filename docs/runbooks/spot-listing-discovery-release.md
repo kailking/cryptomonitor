@@ -11,7 +11,22 @@
 
 ## 第一步：同步数据库结构
 
-线上没有旧版新币雷达，因此直接用数据库管理工具同步本地最终结构，不执行建表或 ALTER SQL。
+首次部署且线上没有新币雷达表时，直接用数据库管理工具同步本地最终结构；同步结果必须确认
+`spot_listing_channel_items.product_scope` 的 CHECK 包含 `cex_spot`。
+
+如果线上已经运行新币雷达 1.0，不要重建或覆盖这 15 张表，只依次执行：
+
+先在宝塔中只停止 `spot_listing_watcher` 和 `listing_channel_watcher` 两个雷达进程，确认它们已退出后再执行下列在线结构迁移。不要停止或重启 `cmd_2`、Redis 及其他行情进程。
+
+```text
+backend-api/database/sql/2026-09-02-10-allow-cex-spot-channel-items.sql
+backend-api/database/sql/2026-09-02-11-postflight-cex-spot-channel-items.sql
+backend-api/database/sql/2026-09-02-20-add-spot-listing-retention-indexes.sql
+backend-api/database/sql/2026-09-02-21-postflight-spot-listing-retention-indexes.sql
+```
+
+第一个 postflight 必须显示 `allows_cex_spot=1`、`enforced=YES`、`invalid_scope_rows=0`；第二个
+postflight 必须返回两行且 `column_list` 都是 `event_at_ms,id`，再进入第二步。
 
 1. 选择下面全部 15 张表：
 
@@ -72,6 +87,7 @@ cmd/spot_listing_watcher/
 cmd/listing_channel_watcher/
 internal/spotlisting/
 internal/listingchannels/
+internal/listingretention/
 go.mod
 go.sum
 ```
@@ -104,7 +120,18 @@ SPOT_LISTING_GATE_ANNOUNCEMENTS_ENABLED=true
 SPOT_LISTING_MEXC_ANNOUNCEMENTS_ENABLED=true
 SPOT_LISTING_KUCOIN_ANNOUNCEMENTS_ENABLED=true
 SPOT_LISTING_CHANNEL_WATCHER_ENABLED=true
+SPOT_LISTING_CHANNEL_MEXC_WEB_SPOT_INTERVAL_SECONDS=30
+SPOT_LISTING_CHANNEL_MEXC_WEB_SPOT_MINIMUM_ITEMS=1000
+SPOT_LISTING_RETENTION_ENABLED=true
+SPOT_LISTING_RETENTION_DAYS=8
 ```
+
+两个进程每次启动都会在各自独占锁内自动清理，不需要另开脚本或定时任务。默认只保留最近
+8 天的旧公告和可压缩事件（覆盖页面最大 7 天窗口并留 1 天安全量），每批 500 行、总计最多
+100 批、最多占用 8 秒；超时或单批失败只记录 `status=partial/degraded`，不会阻断新币采集。
+`spot_listing_market_states`、`spot_listing_channel_items` 和各 checkpoint 是当前目录与防重复基线，
+不会按日志 TTL 删除；它们按唯一键更新，并不会每轮扫描都新增一行。旧的置顶公告被清理后也
+不会重新入库；官方改时或取消修订只要仍被公告源抓到，已有任务就能正确更新。
 
 ### 测试并编译 Go
 
@@ -139,8 +166,11 @@ go build -trimpath -o bin/listing_channel_watcher ./cmd/listing_channel_watcher
 
 ### 最后检查
 
-1. 两个进程在宝塔中都显示运行中，日志没有数据库结构错误。
-2. 五家市场源、五家公告源和九个专区源完成初始化并持续更新。
+1. 两个进程在宝塔中都显示运行中，日志没有数据库结构错误；启动日志出现
+   `spot-listing retention scope=primary` 和 `scope=channels`。`ok` 表示本轮清理完成；`partial`
+   表示达到批次预算但采集可继续，应在低峰期再次安全重启对应雷达进程，直到出现 `ok`；任何
+   `degraded` 都必须先根据同一行的 `error` 排查，不能作为清理验收通过。
+2. 五家市场源、五家公告源和十个专区/补充源完成初始化并持续更新，其中 `mexc_web_spot_candidates` 不得报数据库约束错误。
 3. 在后台给需要查看的账号授权 `quotation.listing.view`，该账号重新登录。
 4. 打开“交易对数据 → 新币雷达”，确认交易对、交易所、专区、开盘时间和页面自动更新正常。
 5. 确认 `cmd_2`、Redis 和其他原行情进程没有被停止、重启或覆盖。
